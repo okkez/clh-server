@@ -1,0 +1,47 @@
+use diesel::prelude::*;
+
+use crate::models;
+
+pub fn find(conn: &PgConnection, history_id: i32) -> Result<Option<models::History>, diesel::result::Error> {
+    use crate::schema::histories::dsl::*;
+
+    let history = histories
+        .filter(id.eq(history_id))
+        .select((id, hostname, working_directory, command))
+        .first::<models::History>(conn)
+        .optional()?;
+
+    Ok(history)
+}
+
+pub fn search(conn: &PgConnection, chunk: &str) -> Result<Option<Vec<models::History>>, diesel::result::Error> {
+    use crate::schema::histories::dsl::*;
+
+    let results = histories
+        .select((id, hostname, working_directory, command))
+        .order(created_at.desc())
+        .limit(100)
+        .load::<models::History>(conn)
+        .optional()?;
+
+    Ok(results)
+}
+
+pub fn create_history(
+    conn: &PgConnection,
+    h: &str,
+    w: &str,
+    c: &str,
+) -> Result<models::NewHistory, diesel::result::Error> {
+    use crate::schema::histories::dsl::*;
+
+    let new_history = models::NewHistory{
+        hostname: h.to_string(),
+        working_directory: w.to_string(),
+        command: c.to_string(),
+    };
+
+    diesel::insert_into(histories).values(&new_history).execute(conn)?;
+
+    Ok(new_history)
+}
