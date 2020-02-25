@@ -1,7 +1,7 @@
-use serde::{Deserialize, Serialize};
+use super::schema::histories;
 use actix_web::{Error, HttpRequest, HttpResponse, Responder};
 use futures::future::{ready, Ready};
-use super::schema::histories;
+use serde::{Deserialize, Serialize};
 
 use chrono::{DateTime, Local};
 
@@ -15,7 +15,7 @@ pub struct History {
 }
 
 #[derive(Insertable, Debug, Serialize, Deserialize)]
-#[table_name="histories"]
+#[table_name = "histories"]
 pub struct NewHistory {
     pub hostname: String,
     pub working_directory: String,
@@ -27,16 +27,23 @@ pub struct Histories {
     pub elements: Vec<History>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct DeletedHistoryCount {
+    pub count: usize,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SimpleMessage {
+    pub message: String,
+}
+
 impl Responder for History {
     type Error = Error;
     type Future = Ready<Result<HttpResponse, Error>>;
 
-    fn respond_to(self, req: &HttpRequest) -> Self::Future {
-        let body = serde_json::to_string(&self).unwrap();
-
-        ready(Ok(HttpResponse::Ok()
-                 .content_type("application/json")
-                 .body(body)))
+    fn respond_to(self, _req: &HttpRequest) -> Self::Future {
+        ready(Ok(HttpResponse::Ok().json(&self)))
     }
 }
 
@@ -45,9 +52,11 @@ impl Responder for NewHistory {
     type Future = Ready<Result<HttpResponse, Error>>;
 
     fn respond_to(self, _req: &HttpRequest) -> Self::Future {
-        ready(Ok(HttpResponse::Created()
-                 .content_type("application/json")
-                 .body("{\"message\": \"Successfully created\"}")))
+        let message = SimpleMessage {
+            message: String::from("Successfully created"),
+        };
+
+        ready(Ok(HttpResponse::Created().json(message)))
     }
 }
 
@@ -55,11 +64,16 @@ impl Responder for Histories {
     type Error = Error;
     type Future = Ready<Result<HttpResponse, Error>>;
 
-    fn respond_to(self, req: &HttpRequest) -> Self::Future {
-        let body = serde_json::to_string(&self).unwrap();
+    fn respond_to(self, _req: &HttpRequest) -> Self::Future {
+        ready(Ok(HttpResponse::Ok().json(&self)))
+    }
+}
 
-        ready(Ok(HttpResponse::Ok()
-                 .content_type("application/json")
-                 .body(body)))
+impl Responder for DeletedHistoryCount {
+    type Error = Error;
+    type Future = Ready<Result<HttpResponse, Error>>;
+
+    fn respond_to(self, _req: &HttpRequest) -> Self::Future {
+        ready(Ok(HttpResponse::Ok().json(&self)))
     }
 }
