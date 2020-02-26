@@ -2,6 +2,8 @@
 extern crate diesel;
 extern crate dotenv;
 
+use std::collections::HashMap;
+
 use actix_web::middleware::Logger;
 use actix_web::{delete, get, post, web};
 use actix_web::{App, HttpResponse, HttpServer, Responder};
@@ -20,7 +22,7 @@ use self::models::*;
 type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
 #[get("/")]
-async fn index(pool: web::Data<DbPool>, q: web::Query<actions::SearchParams>) -> impl Responder {
+async fn index(pool: web::Data<DbPool>, q: web::Query<HashMap<String, String>>) -> impl Responder {
     let conn = pool.get().expect("cannot get db connection from pool");
 
     let results = web::block(move || actions::search(&conn, &q))

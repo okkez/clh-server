@@ -1,12 +1,8 @@
 use diesel::prelude::*;
 use serde::Deserialize;
+use std::collections::HashMap;
 
 use crate::models;
-
-#[derive(Deserialize)]
-pub struct SearchParams {
-    pub pwd: String,
-}
 
 pub fn find(
     conn: &PgConnection,
@@ -25,15 +21,21 @@ pub fn find(
 
 pub fn search(
     conn: &PgConnection,
-    q: &SearchParams,
+    q: &HashMap<String, String>,
 ) -> Result<Vec<models::History>, diesel::result::Error> {
     use crate::schema::histories::dsl::*;
 
-    let results = histories
-        .select((id, hostname, working_directory, command))
-        .filter(working_directory.eq(&q.pwd))
-        .order(created_at.desc())
-        .load::<models::History>(conn)?;
+    let results = match q.get("pwd") {
+        Some(pwd) => histories
+            .select((id, hostname, working_directory, command))
+            .filter(working_directory.eq(&pwd))
+            .order(created_at.desc())
+            .load::<models::History>(conn)?,
+        None => histories
+            .select((id, hostname, working_directory, command))
+            .order(created_at.desc())
+            .load::<models::History>(conn)?
+    };
 
     Ok(results)
 }
