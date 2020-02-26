@@ -1,6 +1,12 @@
 use diesel::prelude::*;
+use serde::Deserialize;
 
 use crate::models;
+
+#[derive(Deserialize)]
+pub struct SearchParams {
+    pub pwd: String,
+}
 
 pub fn find(
     conn: &PgConnection,
@@ -19,16 +25,15 @@ pub fn find(
 
 pub fn search(
     conn: &PgConnection,
-    chunk: &str,
-) -> Result<Option<Vec<models::History>>, diesel::result::Error> {
+    q: &SearchParams,
+) -> Result<Vec<models::History>, diesel::result::Error> {
     use crate::schema::histories::dsl::*;
 
     let results = histories
         .select((id, hostname, working_directory, command))
+        .filter(working_directory.eq(&q.pwd))
         .order(created_at.desc())
-        .limit(100)
-        .load::<models::History>(conn)
-        .optional()?;
+        .load::<models::History>(conn)?;
 
     Ok(results)
 }

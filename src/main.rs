@@ -20,11 +20,10 @@ use self::models::*;
 type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
 #[get("/")]
-async fn index(pool: web::Data<DbPool>) -> impl Responder {
+async fn index(pool: web::Data<DbPool>, q: web::Query<actions::SearchParams>) -> impl Responder {
     let conn = pool.get().expect("cannot get db connection from pool");
-    let chunk = "dummy";
 
-    let results = web::block(move || actions::search(&conn, &chunk))
+    let results = web::block(move || actions::search(&conn, &q))
         .await
         .map_err(|e| {
             eprintln!("{}", e);
@@ -32,10 +31,7 @@ async fn index(pool: web::Data<DbPool>) -> impl Responder {
         });
 
     match results {
-        Ok(s) => match s {
-            Some(h) => web::Json(h),
-            None => web::Json(vec![]),
-        },
+        Ok(h) => web::Json(h),
         Err(_e) => web::Json(vec![]),
     }
 }
