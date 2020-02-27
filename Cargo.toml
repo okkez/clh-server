@@ -19,7 +19,6 @@ json = "*"
 diesel = { version = "1.0.0", features = ["postgres", "chrono", "r2d2", "numeric"] }
 dotenv = "0.9.0"
 chrono = { version = "*", features = ["serde"] }
-chrono-tz = "*"
 r2d2 = "*"
 
 env_logger = "*"
