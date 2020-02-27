@@ -6,7 +6,7 @@ use futures::future::{ready, Ready};
 use serde::{Deserialize, Serialize};
 
 use chrono::prelude::*;
-use chrono::{DateTime, Local};
+use chrono::DateTime;
 
 #[derive(Queryable, Debug, Serialize, Deserialize)]
 pub struct History {
