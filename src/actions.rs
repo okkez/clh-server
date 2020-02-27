@@ -30,7 +30,7 @@ pub fn search(
             .load::<models::History>(conn)?,
         None => histories
             .order(created_at.desc())
-            .load::<models::History>(conn)?
+            .load::<models::History>(conn)?,
     };
 
     Ok(results)
