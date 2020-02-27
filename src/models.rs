@@ -1,8 +1,11 @@
+extern crate chrono;
+
 use super::schema::histories;
 use actix_web::{Error, HttpRequest, HttpResponse, Responder};
 use futures::future::{ready, Ready};
 use serde::{Deserialize, Serialize};
 
+use chrono::prelude::*;
 use chrono::{DateTime, Local};
 
 #[derive(Queryable, Debug, Serialize, Deserialize)]
@@ -11,7 +14,7 @@ pub struct History {
     pub hostname: String,
     pub working_directory: Option<String>,
     pub command: String,
-    // pub created_at: DateTime<Local>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Insertable, Debug, Serialize, Deserialize)]

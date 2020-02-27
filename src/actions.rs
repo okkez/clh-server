@@ -11,7 +11,6 @@ pub fn find(
 
     let history = histories
         .filter(id.eq(history_id))
-        .select((id, hostname, working_directory, command))
         .first::<models::History>(conn)
         .optional()?;
 
@@ -26,12 +25,10 @@ pub fn search(
 
     let results = match q.get("pwd") {
         Some(pwd) => histories
-            .select((id, hostname, working_directory, command))
             .filter(working_directory.eq(&pwd))
             .order(created_at.desc())
             .load::<models::History>(conn)?,
         None => histories
-            .select((id, hostname, working_directory, command))
             .order(created_at.desc())
             .load::<models::History>(conn)?
     };
