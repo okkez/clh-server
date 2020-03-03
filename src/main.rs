@@ -1,5 +1,7 @@
 #[macro_use]
 extern crate diesel;
+#[macro_use]
+extern crate diesel_migrations;
 extern crate dotenv;
 
 use std::collections::HashMap;
@@ -11,6 +13,7 @@ use listenfd::ListenFd;
 
 use diesel::pg::PgConnection;
 use diesel::r2d2::{self, ConnectionManager};
+use diesel_migrations::embed_migrations;
 use dotenv::dotenv;
 
 mod actions;
@@ -81,6 +84,8 @@ async fn delete(pool: web::Data<DbPool>, id: web::Path<i32>) -> impl Responder {
         })
 }
 
+embed_migrations!("./migrations");
+
 #[actix_rt::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
@@ -91,6 +96,9 @@ async fn main() -> std::io::Result<()> {
     let pool = r2d2::Pool::builder()
         .build(manager)
         .expect("Failed to create pool");
+
+    let conn = pool.get().expect("cannot get db connection from pool");
+    embedded_migrations::run_with_output(&conn, &mut std::io::stdout()).expect("failed to run migrations");
 
     let mut listenfd = ListenFd::from_env();
     let mut server = HttpServer::new(move || {
@@ -105,7 +113,7 @@ async fn main() -> std::io::Result<()> {
     server = if let Some(l) = listenfd.take_tcp_listener(0).unwrap() {
         server.listen(l)?
     } else {
-        server.bind("127.0.0.1:8088")?
+        server.bind("0.0.0.0:8088")?
     };
     server.run().await
 }
