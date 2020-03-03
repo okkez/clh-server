@@ -1,0 +1,23 @@
+version: "3.2"
+
+services:
+  db:
+    image: postgres:12
+    restart: always
+    volumes:
+      - ./db-data12:/var/lib/postgresql/data
+      - ./init-user-db.sh:/docker-entrypoint-initdb.d/init-user-db.sh
+    env_file:
+      - db.env
+
+  clh:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    links:
+      - db
+    env_file:
+      clh.env
+    ports:
+      - "8088:8088"
+    command: ["/app/target/releases/clh-server"]
