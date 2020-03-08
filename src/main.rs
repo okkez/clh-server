@@ -54,7 +54,7 @@ async fn show(pool: web::Data<DbPool>, id: web::Path<i32>) -> impl Responder {
 }
 
 #[post("/")]
-async fn create(pool: web::Data<DbPool>, new_history: web::Json<NewHistory>) -> impl Responder {
+async fn create(pool: web::Data<DbPool>, new_history: web::Form<NewHistory>) -> impl Responder {
     let conn = pool.get().expect("cannot get db connection from pool");
 
     web::block(move || {
