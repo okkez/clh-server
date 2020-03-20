@@ -8,6 +8,8 @@ ExecStart = /home/kenji/wc/clh-server/target/release/clh-server
 ExecStop = /bin/kill -INT ${MAINPID}
 WorkingDirectory = /home/kenji/wc/clh-server
 Restart = always
+User = kenji
+Group = kenji
 Type = simple
 
 [Install]
