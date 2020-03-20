@@ -5,6 +5,8 @@ ConditionPathExists = /home/kenji/wc/clh-server
 
 [Service]
 ExecStart = /home/kenji/wc/clh-server/target/release/clh-server
+ExecStop = /bin/kill -INT ${MAINPID}
+WorkingDirectory = /home/kenji/wc/clh-server
 Restart = always
 Type = simple
 
