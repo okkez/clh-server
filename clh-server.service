@@ -1,12 +1,12 @@
 [Unit]
-Desctiption = clh-server
-After=network.target postgresql.service
-ConditionPathExists=/home/kenji/wc/clh-server
+Description = clh-server
+After = network.target postgresql.service
+ConditionPathExists = /home/kenji/wc/clh-server
 
 [Service]
-ExecStart=/home/kenji/wc/clh-server/target/release/clh-server
-Restart=yes
-Type=simple
+ExecStart = /home/kenji/wc/clh-server/target/release/clh-server
+Restart = always
+Type = simple
 
 [Install]
-WantedBy=multi-user.target
+WantedBy = multi-user.target
