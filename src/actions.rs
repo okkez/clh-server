@@ -52,6 +52,8 @@ pub fn create_history(
 
     diesel::insert_into(histories)
         .values(&new_history)
+        .on_conflict((hostname, working_directory, command))
+        .do_nothing()
         .execute(conn)?;
 
     Ok(new_history)
