@@ -15,6 +15,7 @@ pub struct History {
     pub working_directory: Option<String>,
     pub command: String,
     pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Insertable, Debug, Serialize, Deserialize)]

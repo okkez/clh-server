@@ -1,4 +1,5 @@
 use diesel::prelude::*;
+use diesel::dsl::*;
 use std::collections::HashMap;
 
 use crate::models;
@@ -26,10 +27,10 @@ pub fn search(
     let results = match q.get("pwd") {
         Some(pwd) => histories
             .filter(working_directory.eq(&pwd))
-            .order(created_at.desc())
+            .order(updated_at.desc())
             .load::<models::History>(conn)?,
         None => histories
-            .order(created_at.desc())
+            .order(updated_at.desc())
             .load::<models::History>(conn)?,
     };
 
@@ -53,7 +54,8 @@ pub fn create_history(
     diesel::insert_into(histories)
         .values(&new_history)
         .on_conflict((hostname, working_directory, command))
-        .do_nothing()
+        .do_update()
+        .set(updated_at.eq(now))
         .execute(conn)?;
 
     Ok(new_history)

@@ -5,5 +5,6 @@ table! {
         working_directory -> Nullable<Text>,
         command -> Text,
         created_at -> Timestamptz,
+        updated_at -> Timestamptz,
     }
 }
