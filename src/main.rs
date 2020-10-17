@@ -108,6 +108,7 @@ async fn main() -> std::io::Result<()> {
             .service(index)
             .service(show)
             .service(create)
+            .service(delete)
     });
 
     server = if let Some(l) = listenfd.take_tcp_listener(0).unwrap() {
