@@ -2,3 +2,4 @@ Dockerfile
 .env
 .git/
 target/
+db-data*/
