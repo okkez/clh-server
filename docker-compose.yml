@@ -20,4 +20,4 @@ services:
       clh.env
     ports:
       - "8088:8088"
-    command: ["/app/target/releases/clh-server"]
+    command: ["/app/clh-server"]
