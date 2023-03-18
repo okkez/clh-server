@@ -31,6 +31,7 @@ pub fn search(
             .load::<models::History>(conn)?,
         None => histories
             .order(updated_at.desc())
+            .limit(10000)
             .load::<models::History>(conn)?,
     };
 
