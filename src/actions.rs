@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::models;
 
 pub fn find(
-    conn: &PgConnection,
+    conn: &mut PgConnection,
     history_id: i32,
 ) -> Result<Option<models::History>, diesel::result::Error> {
     use crate::schema::histories::dsl::*;
@@ -19,7 +19,7 @@ pub fn find(
 }
 
 pub fn search(
-    conn: &PgConnection,
+    conn: &mut PgConnection,
     q: &HashMap<String, String>,
 ) -> Result<Vec<models::History>, diesel::result::Error> {
     use crate::schema::histories::dsl::*;
@@ -39,7 +39,7 @@ pub fn search(
 }
 
 pub fn create_history(
-    conn: &PgConnection,
+    conn: &mut PgConnection,
     h: &str,
     w: &str,
     c: &str,
@@ -63,7 +63,7 @@ pub fn create_history(
 }
 
 pub fn delete_history(
-    conn: &PgConnection,
+    conn: &mut PgConnection,
     history_id: i32,
 ) -> Result<models::DeletedHistoryCount, diesel::result::Error> {
     use crate::schema::histories::dsl::*;

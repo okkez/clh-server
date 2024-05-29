@@ -1,4 +1,4 @@
-table! {
+diesel::table! {
     histories (id) {
         id -> Int4,
         hostname -> Varchar,

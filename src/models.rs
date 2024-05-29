@@ -1,12 +1,11 @@
-extern crate chrono;
-
-use super::schema::histories;
 use actix_web::{Error, HttpRequest, HttpResponse, Responder};
 use futures::future::{ready, Ready};
 use serde::{Deserialize, Serialize};
 
 use chrono::prelude::*;
 use chrono::DateTime;
+
+use diesel::{Insertable, Queryable};
 
 #[derive(Queryable, Debug, Serialize, Deserialize)]
 pub struct History {
@@ -19,7 +18,7 @@ pub struct History {
 }
 
 #[derive(Insertable, Debug, Serialize, Deserialize)]
-#[table_name = "histories"]
+#[diesel(table_name = crate::schema::histories)]
 pub struct NewHistory {
     pub hostname: String,
     pub working_directory: String,
