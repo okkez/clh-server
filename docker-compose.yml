@@ -1,11 +1,9 @@
-version: "3.2"
-
 services:
   db:
-    image: postgres:12
+    image: postgres:16
     restart: always
     volumes:
-      - ./db-data12:/var/lib/postgresql/data
+      - ./db-data16:/var/lib/postgresql/data
       - ./init-user-db.sh:/docker-entrypoint-initdb.d/init-user-db.sh
     env_file:
       - db.env

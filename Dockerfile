@@ -1,4 +1,4 @@
-FROM rust:1.60.0 as build
+FROM rust:1.78.0 as build
 
 RUN apt-get update && apt-get install -qq -y libpq-dev && apt-get clean
 
@@ -15,7 +15,7 @@ COPY ./diesel.toml ./diesel.toml
 
 RUN cargo clean && cargo build -j 4 --release
 
-FROM debian:buster-slim
+FROM debian:bookworm-slim
 
 WORKDIR /app
 RUN apt-get update && apt-get install -qq -y libpq-dev && apt-get clean
