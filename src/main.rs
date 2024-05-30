@@ -26,12 +26,11 @@ async fn index(
 ) -> Result<impl Responder> {
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
-    let response = web::block(move || actions::search(&mut conn, &q))
-        .await
-        .unwrap();
-
-    match response {
-        Ok(h) => Ok(web::Json(h)),
+    match web::block(move || actions::search(&mut conn, &q)).await {
+        Ok(response) => match response {
+            Ok(h) => Ok(web::Json(h)),
+            Err(e) => Err(error::ErrorInternalServerError(e)),
+        },
         Err(e) => Err(error::ErrorInternalServerError(e)),
     }
 }
@@ -40,12 +39,11 @@ async fn index(
 async fn show(pool: web::Data<DbPool>, id: web::Path<i32>) -> Result<impl Responder> {
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
-    let response = web::block(move || actions::find(&mut conn, *id))
-        .await
-        .unwrap();
-
-    match response {
-        Ok(r) => Ok(web::Json(r)),
+    match web::block(move || actions::find(&mut conn, *id)).await {
+        Ok(response) => match response {
+            Ok(r) => Ok(web::Json(r)),
+            Err(e) => Err(error::ErrorInternalServerError(e)),
+        },
         Err(e) => Err(error::ErrorInternalServerError(e)),
     }
 }
@@ -57,7 +55,7 @@ async fn create(
 ) -> Result<impl Responder> {
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
-    let response = web::block(move || {
+    let wrapped_response = web::block(move || {
         actions::create_history(
             &mut conn,
             &new_history.hostname,
@@ -65,11 +63,13 @@ async fn create(
             &new_history.command,
         )
     })
-    .await
-    .unwrap();
+    .await;
 
-    match response {
-        Ok(r) => Ok(web::Json(r)),
+    match wrapped_response {
+        Ok(response) => match response {
+            Ok(r) => Ok(web::Json(r)),
+            Err(e) => Err(error::ErrorInternalServerError(e)),
+        },
         Err(e) => Err(error::ErrorInternalServerError(e)),
     }
 }
@@ -78,12 +78,11 @@ async fn create(
 async fn delete(pool: web::Data<DbPool>, id: web::Path<i32>) -> Result<impl Responder> {
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
-    let response = web::block(move || actions::delete_history(&mut conn, *id))
-        .await
-        .unwrap();
-
-    match response {
-        Ok(r) => Ok(web::Json(r)),
+    match web::block(move || actions::delete_history(&mut conn, *id)).await {
+        Ok(response) => match response {
+            Ok(r) => Ok(web::Json(r)),
+            Err(e) => Err(error::ErrorInternalServerError(e)),
+        },
         Err(e) => Err(error::ErrorInternalServerError(e)),
     }
 }
