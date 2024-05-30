@@ -1,5 +1,4 @@
-use actix_web::{body::BoxBody, Error, HttpRequest, HttpResponse, Responder};
-use futures::future::{ready, Ready};
+use actix_web::{body::BoxBody, HttpRequest, HttpResponse, Responder};
 use serde::{Deserialize, Serialize};
 
 use chrono::prelude::*;

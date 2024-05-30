@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use actix_web::middleware::Logger;
 use actix_web::{delete, error, get, post, web};
-use actix_web::{App, HttpResponse, HttpServer, Responder, Result};
+use actix_web::{App, HttpServer, Responder, Result};
 use listenfd::ListenFd;
 
 use diesel;
