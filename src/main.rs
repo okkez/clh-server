@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use actix_web::middleware::Logger;
-use actix_web::{delete, get, post, web};
-use actix_web::{App, HttpResponse, HttpServer, Responder};
+use actix_web::{delete, error, get, post, web};
+use actix_web::{App, HttpResponse, HttpServer, Responder, Result};
 use listenfd::ListenFd;
 
 use diesel;
@@ -15,44 +15,49 @@ mod actions;
 mod models;
 mod schema;
 
-use self::models::*;
+use crate::models::*;
 
 type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
 #[get("/")]
-async fn index(pool: web::Data<DbPool>, q: web::Query<HashMap<String, String>>) -> impl Responder {
+async fn index(
+    pool: web::Data<DbPool>,
+    q: web::Query<HashMap<String, String>>,
+) -> Result<impl Responder> {
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
-    let results = web::block(move || actions::search(&mut conn, &q))
+    let response = web::block(move || actions::search(&mut conn, &q))
         .await
-        .map_err(|e| {
-            eprintln!("{}", e);
-            HttpResponse::InternalServerError().finish()
-        });
+        .unwrap();
 
-    match results {
-        Ok(h) => web::Json(h),
-        Err(_e) => web::Json(vec![]),
+    match response {
+        Ok(h) => Ok(web::Json(h)),
+        Err(e) => Err(error::ErrorInternalServerError(e)),
     }
 }
 
 #[get("/{id}")]
-async fn show(pool: web::Data<DbPool>, id: web::Path<i32>) -> impl Responder {
+async fn show(pool: web::Data<DbPool>, id: web::Path<i32>) -> Result<impl Responder> {
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
-    web::block(move || actions::find(&mut conn, *id))
+    let response = web::block(move || actions::find(&mut conn, *id))
         .await
-        .map_err(|e| {
-            eprintln!("{}", e);
-            HttpResponse::InternalServerError().finish()
-        })
+        .unwrap();
+
+    match response {
+        Ok(r) => Ok(web::Json(r)),
+        Err(e) => Err(error::ErrorInternalServerError(e)),
+    }
 }
 
 #[post("/")]
-async fn create(pool: web::Data<DbPool>, new_history: web::Form<NewHistory>) -> impl Responder {
+async fn create(
+    pool: web::Data<DbPool>,
+    new_history: web::Form<NewHistory>,
+) -> Result<impl Responder> {
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
-    web::block(move || {
+    let response = web::block(move || {
         actions::create_history(
             &mut conn,
             &new_history.hostname,
@@ -61,22 +66,26 @@ async fn create(pool: web::Data<DbPool>, new_history: web::Form<NewHistory>) -> 
         )
     })
     .await
-    .map_err(|e| {
-        eprintln!("{}", e);
-        HttpResponse::InternalServerError().finish()
-    })
+    .unwrap();
+
+    match response {
+        Ok(r) => Ok(web::Json(r)),
+        Err(e) => Err(error::ErrorInternalServerError(e)),
+    }
 }
 
 #[delete("/{id}")]
-async fn delete(pool: web::Data<DbPool>, id: web::Path<i32>) -> impl Responder {
+async fn delete(pool: web::Data<DbPool>, id: web::Path<i32>) -> Result<impl Responder> {
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
-    web::block(move || actions::delete_history(&mut conn, *id))
+    let response = web::block(move || actions::delete_history(&mut conn, *id))
         .await
-        .map_err(|e| {
-            eprintln!("{}", e);
-            HttpResponse::InternalServerError().finish()
-        })
+        .unwrap();
+
+    match response {
+        Ok(r) => Ok(web::Json(r)),
+        Err(e) => Err(error::ErrorInternalServerError(e)),
+    }
 }
 
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");

@@ -1,5 +1,5 @@
-use diesel::prelude::*;
 use diesel::dsl::*;
+use diesel::prelude::*;
 use std::collections::HashMap;
 
 use crate::models;

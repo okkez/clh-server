@@ -1,4 +1,4 @@
-use actix_web::{Error, HttpRequest, HttpResponse, Responder};
+use actix_web::{body::BoxBody, Error, HttpRequest, HttpResponse, Responder};
 use futures::future::{ready, Ready};
 use serde::{Deserialize, Serialize};
 
@@ -42,41 +42,37 @@ struct SimpleMessage {
 }
 
 impl Responder for History {
-    type Error = Error;
-    type Future = Ready<Result<HttpResponse, Error>>;
+    type Body = BoxBody;
 
-    fn respond_to(self, _req: &HttpRequest) -> Self::Future {
-        ready(Ok(HttpResponse::Ok().json(&self)))
+    fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(&self)
     }
 }
 
 impl Responder for NewHistory {
-    type Error = Error;
-    type Future = Ready<Result<HttpResponse, Error>>;
+    type Body = BoxBody;
 
-    fn respond_to(self, _req: &HttpRequest) -> Self::Future {
+    fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
         let message = SimpleMessage {
             message: String::from("Successfully created"),
         };
 
-        ready(Ok(HttpResponse::Created().json(message)))
+        HttpResponse::Created().json(message)
     }
 }
 
 impl Responder for Histories {
-    type Error = Error;
-    type Future = Ready<Result<HttpResponse, Error>>;
+    type Body = BoxBody;
 
-    fn respond_to(self, _req: &HttpRequest) -> Self::Future {
-        ready(Ok(HttpResponse::Ok().json(&self)))
+    fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(&self)
     }
 }
 
 impl Responder for DeletedHistoryCount {
-    type Error = Error;
-    type Future = Ready<Result<HttpResponse, Error>>;
+    type Body = BoxBody;
 
-    fn respond_to(self, _req: &HttpRequest) -> Self::Future {
-        ready(Ok(HttpResponse::Ok().json(&self)))
+    fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
+        HttpResponse::Ok().json(&self)
     }
 }
