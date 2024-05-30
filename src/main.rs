@@ -106,7 +106,7 @@ async fn main() -> std::io::Result<()> {
     let mut listenfd = ListenFd::from_env();
     let mut server = HttpServer::new(move || {
         App::new()
-            .data(pool.clone())
+            .app_data(web::Data::new(pool.clone()))
             .wrap(Logger::default())
             .service(index)
             .service(show)
