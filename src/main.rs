@@ -5,7 +5,6 @@ use actix_web::{delete, error, get, post, web};
 use actix_web::{App, HttpServer, Responder, Result};
 use listenfd::ListenFd;
 
-use diesel;
 use diesel::pg::PgConnection;
 use diesel::r2d2::{self, ConnectionManager};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
