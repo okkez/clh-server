@@ -3,8 +3,9 @@ services:
     image: postgres:17
     restart: always
     volumes:
-      - ./db-data16:/var/lib/postgresql/data
+      - ./db-data17:/var/lib/postgresql/data
       - ./init-user-db.sh:/docker-entrypoint-initdb.d/init-user-db.sh
+      - ./postgresql.conf:/var/lib/postgresql/data/postgresql.conf
     env_file:
       - db.env
 
@@ -19,3 +20,16 @@ services:
     ports:
       - "8088:8088"
     command: ["/app/clh-server"]
+
+  test:
+    build:
+      context: .
+      target: build
+      dockerfile: Dockerfile
+    volumes:
+      - ./src:/app/src
+    links:
+      - db
+    env_file:
+      clh.env
+    command: ["bash", "-c", "/app/setup-db.sh && cargo test -- --no-capture"]
