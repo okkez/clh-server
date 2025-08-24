@@ -175,7 +175,6 @@ mod tests {
             let results2 = search(conn, &query)?;
             assert_eq!(results2.len(), 1, "Should not create a new record");
             let updated_history = &results2[0];
-            println!("{:?}\n{:?}", results1, results2);
             assert!(updated_history.updated_at > initial_update_time, "updated_at should be different");
 
             Ok(())
