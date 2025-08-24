@@ -7,10 +7,10 @@ curl -X POST \
      http://localhost:8088
 echo
 curl http://localhost:8088
-
+id=$(curl --silent http://localhost:8088 | jq -r ".[0].id")
 echo
 echo -----
 
-curl http://localhost:8088/2
+curl http://localhost:8088/${id}
 echo
 
