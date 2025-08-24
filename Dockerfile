@@ -7,11 +7,13 @@ WORKDIR /app
 
 COPY ./Cargo.toml ./Cargo.toml
 RUN cargo build -j 4 --release
+RUN cargo install diesel_cli --no-default-features --features "postgres"
 RUN rm -rf ./src
 
 COPY ./src ./src
 COPY ./migrations ./migrations
 COPY ./diesel.toml ./diesel.toml
+COPY ./setup-db.sh ./setup-db.sh
 
 RUN cargo clean && cargo build -j 4 --release
 

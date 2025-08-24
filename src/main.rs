@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use actix_web::middleware::Logger;
-use actix_web::{delete, error, get, post, web};
+use actix_web::{delete, error, get, post, web, HttpResponse};
 use actix_web::{App, HttpServer, Responder, Result};
 use listenfd::ListenFd;
 
@@ -66,7 +66,7 @@ async fn create(
 
     match wrapped_response {
         Ok(response) => match response {
-            Ok(r) => Ok(web::Json(r)),
+            Ok(r) => Ok(HttpResponse::Created().json(r)),
             Err(e) => Err(error::ErrorInternalServerError(e)),
         },
         Err(e) => Err(error::ErrorInternalServerError(e)),
