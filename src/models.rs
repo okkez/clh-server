@@ -48,17 +48,7 @@ impl Responder for History {
     }
 }
 
-impl Responder for NewHistory {
-    type Body = BoxBody;
 
-    fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
-        let message = SimpleMessage {
-            message: String::from("Successfully created"),
-        };
-
-        HttpResponse::Created().json(message)
-    }
-}
 
 impl Responder for Histories {
     type Body = BoxBody;
