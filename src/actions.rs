@@ -81,7 +81,7 @@ pub fn delete_history(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use diesel::{Connection, connection::{AnsiTransactionManager, TransactionManager}};
+    use diesel::Connection;
     use dotenv::dotenv;
 
     fn setup() -> PgConnection {
