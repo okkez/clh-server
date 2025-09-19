@@ -1,4 +1,4 @@
-FROM rust:1.89.0 as build
+FROM rust:1.90.0 as build
 
 RUN apt-get update && apt-get install -qq -y libpq-dev && apt-get clean
 
