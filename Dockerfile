@@ -7,7 +7,7 @@ WORKDIR /app
 
 COPY ./Cargo.toml ./Cargo.toml
 RUN cargo build -j 4 --release
-RUN cargo install diesel_cli --no-default-features --features "postgres"
+RUN curl -sSL https://github.com/diesel-rs/diesel/releases/download/v2.3.7/diesel_cli-installer.sh | sh
 RUN rm -rf ./src
 
 COPY ./src ./src
