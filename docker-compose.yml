@@ -5,9 +5,15 @@ services:
     volumes:
       - ./db-data17:/var/lib/postgresql/data
       - ./init-user-db.sh:/docker-entrypoint-initdb.d/init-user-db.sh
-      - ./postgresql.conf:/var/lib/postgresql/data/postgresql.conf
+      - ./postgresql.conf:/etc/postgresql/postgresql.conf:ro
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
     env_file:
       - db.env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clh"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   clh:
     build:
@@ -15,6 +21,9 @@ services:
       dockerfile: Dockerfile
     links:
       - db
+    depends_on:
+      db:
+        condition: service_healthy
     env_file:
       clh.env
     ports:
@@ -30,6 +39,9 @@ services:
       - ./src:/app/src
     links:
       - db
+    depends_on:
+      db:
+        condition: service_healthy
     env_file:
       clh.env
     command: ["bash", "-c", "/app/setup-db.sh && cargo test -- --no-capture"]
