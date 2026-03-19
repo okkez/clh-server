@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use actix_web::middleware::Logger;
 use actix_web::{delete, error, get, post, web, HttpResponse};
 use actix_web::{App, HttpServer, Responder, Result};
@@ -19,15 +17,14 @@ use crate::models::*;
 type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
 #[get("/")]
-async fn index(
-    pool: web::Data<DbPool>,
-    q: web::Query<HashMap<String, String>>,
-) -> Result<impl Responder> {
+async fn index(pool: web::Data<DbPool>, q: web::Query<SearchQuery>) -> Result<impl Responder> {
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
     match web::block(move || actions::search(&mut conn, &q)).await {
         Ok(response) => match response {
-            Ok(h) => Ok(web::Json(h)),
+            Ok((histories, total)) => Ok(HttpResponse::Ok()
+                .insert_header(("X-Total-Count", total.to_string()))
+                .json(histories)),
             Err(e) => Err(error::ErrorInternalServerError(e)),
         },
         Err(e) => Err(error::ErrorInternalServerError(e)),
@@ -216,11 +213,16 @@ mod tests {
         )
         .expect("failed to seed history");
 
-        let mut query = HashMap::new();
-        query.insert("pwd".to_string(), history.working_directory.clone());
+        let query = SearchQuery {
+            pwd: Some(history.working_directory.clone()),
+            hostname: None,
+            limit: None,
+            offset: None,
+        };
 
-        actions::search(&mut conn, &query)
-            .expect("failed to load seeded history")
+        let (results, _) =
+            actions::search(&mut conn, &query).expect("failed to load seeded history");
+        results
             .into_iter()
             .find(|candidate| {
                 candidate.hostname == history.hostname && candidate.command == history.command
@@ -253,6 +255,7 @@ mod tests {
         let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers().contains_key("x-total-count"));
 
         let body: Vec<History> = test::read_body_json(resp).await;
         assert_eq!(body.len(), 1);
@@ -285,6 +288,7 @@ mod tests {
         let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers().contains_key("x-total-count"));
 
         let body: Vec<History> = test::read_body_json(resp).await;
         assert!(body.iter().any(|candidate| {
@@ -380,9 +384,14 @@ mod tests {
         assert_eq!(body.command, history.history().command);
 
         let mut conn = pool.get().expect("cannot get db connection from pool");
-        let mut query = HashMap::new();
-        query.insert("pwd".to_string(), body.working_directory.clone());
-        let results = actions::search(&mut conn, &query).expect("failed to search created history");
+        let query = SearchQuery {
+            pwd: Some(body.working_directory.clone()),
+            hostname: None,
+            limit: None,
+            offset: None,
+        };
+        let (results, _) =
+            actions::search(&mut conn, &query).expect("failed to search created history");
 
         assert!(results.iter().any(|candidate| {
             candidate.hostname == body.hostname && candidate.command == body.command
@@ -420,5 +429,116 @@ mod tests {
         let mut conn = pool.get().expect("cannot get db connection from pool");
         let found = actions::find(&mut conn, seeded.id).expect("failed to look up deleted history");
         assert!(found.is_none());
+    }
+
+    #[actix_rt::test]
+    async fn test_index_filters_by_hostname() {
+        let pool = setup_pool();
+        let target = TestHistoryGuard::new(&pool, "hostname-target");
+        let other = TestHistoryGuard::new(&pool, "hostname-other");
+
+        seed_history(&pool, target.history());
+        seed_history(&pool, other.history());
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(pool.clone()))
+                .service(index)
+                .service(show)
+                .service(create)
+                .service(delete),
+        )
+        .await;
+
+        let req = test::TestRequest::get()
+            .uri(&format!("/?hostname={}", target.history().hostname))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let total: i64 = resp
+            .headers()
+            .get("x-total-count")
+            .expect("X-Total-Count header should be present")
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(total, 1);
+
+        let body: Vec<History> = test::read_body_json(resp).await;
+        assert_eq!(body.len(), 1);
+        assert_eq!(body[0].hostname, target.history().hostname);
+    }
+
+    #[actix_rt::test]
+    async fn test_index_pagination() {
+        let pool = setup_pool();
+
+        // Seed 3 records with the same unique pwd so they're isolated
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let pwd = format!("pwd-pagination-{unique}");
+        let hostname = format!("host-pagination-{unique}");
+
+        {
+            let mut conn = pool.get().expect("cannot get db connection from pool");
+            for i in 0..3 {
+                actions::create_history(&mut conn, &hostname, &pwd, &format!("cmd-{i}"))
+                    .expect("failed to seed pagination history");
+            }
+        }
+
+        let app = test::init_service(
+            App::new()
+                .app_data(web::Data::new(pool.clone()))
+                .service(index)
+                .service(show)
+                .service(create)
+                .service(delete),
+        )
+        .await;
+
+        // Page 1: limit=2, offset=0
+        let req = test::TestRequest::get()
+            .uri(&format!("/?pwd={pwd}&limit=2&offset=0"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let total: i64 = resp
+            .headers()
+            .get("x-total-count")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(total, 3);
+        let page1: Vec<History> = test::read_body_json(resp).await;
+        assert_eq!(page1.len(), 2);
+
+        // Page 2: limit=2, offset=2
+        let req = test::TestRequest::get()
+            .uri(&format!("/?pwd={pwd}&limit=2&offset=2"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let page2: Vec<History> = test::read_body_json(resp).await;
+        assert_eq!(page2.len(), 1);
+
+        // No id overlap between pages
+        let ids1: Vec<i32> = page1.iter().map(|h| h.id).collect();
+        let ids2: Vec<i32> = page2.iter().map(|h| h.id).collect();
+        assert!(ids1.iter().all(|id| !ids2.contains(id)));
+
+        // Cleanup seeded records
+        let mut conn = pool.get().expect("cannot get db connection from pool");
+        use crate::schema::histories::dsl;
+        diesel::delete(dsl::histories.filter(dsl::hostname.eq(&hostname)))
+            .execute(&mut conn)
+            .expect("failed to cleanup pagination test data");
     }
 }
