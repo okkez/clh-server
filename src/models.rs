@@ -36,7 +36,7 @@ pub struct DeletedHistoryCount {
 }
 
 /// Query parameters for `GET /`
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct SearchQuery {
     pub pwd: Option<String>,
     pub hostname: Option<String>,

@@ -3,6 +3,20 @@ use diesel::prelude::*;
 
 use crate::models;
 
+type HistoriesQuery<'a> = crate::schema::histories::BoxedQuery<'a, diesel::pg::Pg>;
+
+fn with_filters<'a>(query: HistoriesQuery<'a>, q: &'a models::SearchQuery) -> HistoriesQuery<'a> {
+    use crate::schema::histories::dsl::*;
+    let mut query = query;
+    if let Some(ref pwd) = q.pwd {
+        query = query.filter(working_directory.eq(pwd));
+    }
+    if let Some(ref host) = q.hostname {
+        query = query.filter(hostname.eq(host));
+    }
+    query
+}
+
 pub fn find(
     conn: &mut PgConnection,
     history_id: i32,
@@ -23,25 +37,11 @@ pub fn search(
 ) -> Result<(Vec<models::History>, i64), diesel::result::Error> {
     use crate::schema::histories::dsl::*;
 
-    // Build total count query with the same filters
-    let mut count_query = histories.into_boxed();
-    if let Some(ref pwd) = q.pwd {
-        count_query = count_query.filter(working_directory.eq(pwd));
-    }
-    if let Some(ref host) = q.hostname {
-        count_query = count_query.filter(hostname.eq(host));
-    }
-    let total: i64 = count_query.count().get_result(conn)?;
+    let total: i64 = with_filters(histories.into_boxed(), q)
+        .count()
+        .get_result(conn)?;
 
-    // Build data query with the same filters + ordering + pagination
-    let mut data_query = histories.into_boxed();
-    if let Some(ref pwd) = q.pwd {
-        data_query = data_query.filter(working_directory.eq(pwd));
-    }
-    if let Some(ref host) = q.hostname {
-        data_query = data_query.filter(hostname.eq(host));
-    }
-    let results = data_query
+    let results = with_filters(histories.into_boxed(), q)
         .order(updated_at.desc())
         .limit(q.effective_limit())
         .offset(q.effective_offset())

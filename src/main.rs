@@ -121,7 +121,7 @@ async fn main() -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{http::StatusCode, test};
+    use actix_web::{http::StatusCode, http::header::HeaderMap, test};
     use diesel::prelude::*;
     use diesel_migrations::MigrationHarness;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -140,6 +140,30 @@ mod tests {
         drop(conn);
 
         pool
+    }
+
+    macro_rules! init_test_app {
+        ($pool:expr) => {
+            test::init_service(
+                App::new()
+                    .app_data(web::Data::new($pool.clone()))
+                    .service(index)
+                    .service(show)
+                    .service(create)
+                    .service(delete),
+            )
+            .await
+        };
+    }
+
+    fn parse_total_count(headers: &HeaderMap) -> i64 {
+        headers
+            .get("x-total-count")
+            .expect("X-Total-Count header should be present")
+            .to_str()
+            .expect("X-Total-Count header should be valid UTF-8")
+            .parse::<i64>()
+            .expect("X-Total-Count header should be a valid i64")
     }
 
     fn test_history(label: &str) -> NewHistory {
@@ -215,9 +239,7 @@ mod tests {
 
         let query = SearchQuery {
             pwd: Some(history.working_directory.clone()),
-            hostname: None,
-            limit: None,
-            offset: None,
+            ..Default::default()
         };
 
         let (results, _) =
@@ -239,15 +261,7 @@ mod tests {
         seed_history(&pool, matching.history());
         seed_history(&pool, other.history());
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool.clone()))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         let req = test::TestRequest::get()
             .uri(&format!("/?pwd={}", matching.history().working_directory))
@@ -274,15 +288,7 @@ mod tests {
 
         seed_history(&pool, history.history());
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool.clone()))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         let req = test::TestRequest::get().uri("/").to_request();
         let resp = test::call_service(&app, req).await;
@@ -305,15 +311,7 @@ mod tests {
 
         let seeded = seed_history(&pool, history.history());
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool.clone()))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         let req = test::TestRequest::get()
             .uri(&format!("/{}", seeded.id))
@@ -336,15 +334,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_show_returns_null_for_missing_history() {
         let pool = setup_pool();
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         let req = test::TestRequest::get().uri("/2147483647").to_request();
         let resp = test::call_service(&app, req).await;
@@ -360,15 +350,7 @@ mod tests {
         let pool = setup_pool();
         let history = TestHistoryGuard::new(&pool, "create");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool.clone()))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         let req = test::TestRequest::post()
             .uri("/")
@@ -386,9 +368,7 @@ mod tests {
         let mut conn = pool.get().expect("cannot get db connection from pool");
         let query = SearchQuery {
             pwd: Some(body.working_directory.clone()),
-            hostname: None,
-            limit: None,
-            offset: None,
+            ..Default::default()
         };
         let (results, _) =
             actions::search(&mut conn, &query).expect("failed to search created history");
@@ -405,15 +385,7 @@ mod tests {
 
         let seeded = seed_history(&pool, history.history());
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool.clone()))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         let req = test::TestRequest::delete()
             .uri(&format!("/{}", seeded.id))
@@ -440,15 +412,7 @@ mod tests {
         seed_history(&pool, target.history());
         seed_history(&pool, other.history());
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool.clone()))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         let req = test::TestRequest::get()
             .uri(&format!("/?hostname={}", target.history().hostname))
@@ -457,14 +421,7 @@ mod tests {
 
         assert_eq!(resp.status(), StatusCode::OK);
 
-        let total: i64 = resp
-            .headers()
-            .get("x-total-count")
-            .expect("X-Total-Count header should be present")
-            .to_str()
-            .expect("X-Total-Count header should be valid UTF-8")
-            .parse::<i64>()
-            .expect("X-Total-Count header should be a valid i64");
+        let total = parse_total_count(resp.headers());
         assert_eq!(total, 1);
 
         let body: Vec<History> = test::read_body_json(resp).await;
@@ -492,15 +449,7 @@ mod tests {
             }
         }
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool.clone()))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         // Page 1: limit=2, offset=0
         let req = test::TestRequest::get()
@@ -508,14 +457,7 @@ mod tests {
             .to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), StatusCode::OK);
-        let total: i64 = resp
-            .headers()
-            .get("x-total-count")
-            .expect("X-Total-Count header should be present")
-            .to_str()
-            .expect("X-Total-Count header should be valid UTF-8")
-            .parse::<i64>()
-            .expect("X-Total-Count header should be a valid i64");
+        let total = parse_total_count(resp.headers());
         assert_eq!(total, 3);
         let page1: Vec<History> = test::read_body_json(resp).await;
         assert_eq!(page1.len(), 2);
