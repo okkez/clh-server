@@ -462,9 +462,9 @@ mod tests {
             .get("x-total-count")
             .expect("X-Total-Count header should be present")
             .to_str()
-            .unwrap()
-            .parse()
-            .unwrap();
+            .expect("X-Total-Count header should be valid UTF-8")
+            .parse::<i64>()
+            .expect("X-Total-Count header should be a valid i64");
         assert_eq!(total, 1);
 
         let body: Vec<History> = test::read_body_json(resp).await;
@@ -511,11 +511,11 @@ mod tests {
         let total: i64 = resp
             .headers()
             .get("x-total-count")
-            .unwrap()
+            .expect("X-Total-Count header should be present")
             .to_str()
-            .unwrap()
-            .parse()
-            .unwrap();
+            .expect("X-Total-Count header should be valid UTF-8")
+            .parse::<i64>()
+            .expect("X-Total-Count header should be a valid i64");
         assert_eq!(total, 3);
         let page1: Vec<History> = test::read_body_json(resp).await;
         assert_eq!(page1.len(), 2);
