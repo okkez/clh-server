@@ -227,6 +227,44 @@ mod tests {
         }
     }
 
+    /// Removes all history rows matching a given hostname on drop.
+    struct HostnameGuard {
+        pool: DbPool,
+        hostname: String,
+    }
+
+    impl HostnameGuard {
+        fn new(pool: &DbPool, hostname: impl Into<String>) -> Self {
+            Self {
+                pool: pool.clone(),
+                hostname: hostname.into(),
+            }
+        }
+    }
+
+    impl Drop for HostnameGuard {
+        fn drop(&mut self) {
+            use crate::schema::histories::dsl;
+            let mut conn = match self.pool.get() {
+                Ok(c) => c,
+                Err(e) => {
+                    let msg = format!("failed to get db connection during cleanup for hostname {}: {e}", self.hostname);
+                    if std::thread::panicking() { eprintln!("{msg}"); return; }
+                    panic!("{msg}");
+                }
+            };
+            if let Err(error) = diesel::delete(dsl::histories.filter(dsl::hostname.eq(&self.hostname)))
+                .execute(&mut conn)
+            {
+                if std::thread::panicking() {
+                    eprintln!("failed to cleanup hostname {}: {error}", self.hostname);
+                } else {
+                    panic!("failed to cleanup hostname {}: {error}", self.hostname);
+                }
+            }
+        }
+    }
+
     fn seed_history(pool: &DbPool, history: &NewHistory) -> History {
         let mut conn = pool.get().expect("cannot get db connection from pool");
         actions::create_history(
@@ -440,6 +478,7 @@ mod tests {
             .as_nanos();
         let pwd = format!("pwd-pagination-{unique}");
         let hostname = format!("host-pagination-{unique}");
+        let _guard = HostnameGuard::new(&pool, &hostname);
 
         {
             let mut conn = pool.get().expect("cannot get db connection from pool");
@@ -475,12 +514,5 @@ mod tests {
         let ids1: Vec<i32> = page1.iter().map(|h| h.id).collect();
         let ids2: Vec<i32> = page2.iter().map(|h| h.id).collect();
         assert!(ids1.iter().all(|id| !ids2.contains(id)));
-
-        // Cleanup seeded records
-        let mut conn = pool.get().expect("cannot get db connection from pool");
-        use crate::schema::histories::dsl;
-        diesel::delete(dsl::histories.filter(dsl::hostname.eq(&hostname)))
-            .execute(&mut conn)
-            .expect("failed to cleanup pagination test data");
     }
 }
