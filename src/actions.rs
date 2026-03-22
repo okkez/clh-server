@@ -42,7 +42,7 @@ pub fn search(
         .get_result(conn)?;
 
     let results = with_filters(histories.into_boxed(), q)
-        .order(updated_at.desc())
+        .order((updated_at.desc(), id.desc()))
         .limit(q.effective_limit())
         .offset(q.effective_offset())
         .load::<models::History>(conn)?;
