@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use actix_web::middleware::Logger;
 use actix_web::{delete, error, get, post, web, HttpResponse};
 use actix_web::{App, HttpServer, Responder, Result};
@@ -19,15 +17,14 @@ use crate::models::*;
 type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
 #[get("/")]
-async fn index(
-    pool: web::Data<DbPool>,
-    q: web::Query<HashMap<String, String>>,
-) -> Result<impl Responder> {
+async fn index(pool: web::Data<DbPool>, q: web::Query<SearchQuery>) -> Result<impl Responder> {
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
     match web::block(move || actions::search(&mut conn, &q)).await {
         Ok(response) => match response {
-            Ok(h) => Ok(web::Json(h)),
+            Ok((histories, total)) => Ok(HttpResponse::Ok()
+                .insert_header(("X-Total-Count", total.to_string()))
+                .json(histories)),
             Err(e) => Err(error::ErrorInternalServerError(e)),
         },
         Err(e) => Err(error::ErrorInternalServerError(e)),
@@ -124,7 +121,7 @@ async fn main() -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::{http::StatusCode, test};
+    use actix_web::{http::StatusCode, http::header::HeaderMap, test};
     use diesel::prelude::*;
     use diesel_migrations::MigrationHarness;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -143,6 +140,30 @@ mod tests {
         drop(conn);
 
         pool
+    }
+
+    macro_rules! init_test_app {
+        ($pool:expr) => {
+            test::init_service(
+                App::new()
+                    .app_data(web::Data::new($pool.clone()))
+                    .service(index)
+                    .service(show)
+                    .service(create)
+                    .service(delete),
+            )
+            .await
+        };
+    }
+
+    fn parse_total_count(headers: &HeaderMap) -> i64 {
+        headers
+            .get("x-total-count")
+            .expect("X-Total-Count header should be present")
+            .to_str()
+            .expect("X-Total-Count header should be valid UTF-8")
+            .parse::<i64>()
+            .expect("X-Total-Count header should be a valid i64")
     }
 
     fn test_history(label: &str) -> NewHistory {
@@ -206,6 +227,44 @@ mod tests {
         }
     }
 
+    /// Removes all history rows matching a given hostname on drop.
+    struct HostnameGuard {
+        pool: DbPool,
+        hostname: String,
+    }
+
+    impl HostnameGuard {
+        fn new(pool: &DbPool, hostname: impl Into<String>) -> Self {
+            Self {
+                pool: pool.clone(),
+                hostname: hostname.into(),
+            }
+        }
+    }
+
+    impl Drop for HostnameGuard {
+        fn drop(&mut self) {
+            use crate::schema::histories::dsl;
+            let mut conn = match self.pool.get() {
+                Ok(c) => c,
+                Err(e) => {
+                    let msg = format!("failed to get db connection during cleanup for hostname {}: {e}", self.hostname);
+                    if std::thread::panicking() { eprintln!("{msg}"); return; }
+                    panic!("{msg}");
+                }
+            };
+            if let Err(error) = diesel::delete(dsl::histories.filter(dsl::hostname.eq(&self.hostname)))
+                .execute(&mut conn)
+            {
+                if std::thread::panicking() {
+                    eprintln!("failed to cleanup hostname {}: {error}", self.hostname);
+                } else {
+                    panic!("failed to cleanup hostname {}: {error}", self.hostname);
+                }
+            }
+        }
+    }
+
     fn seed_history(pool: &DbPool, history: &NewHistory) -> History {
         let mut conn = pool.get().expect("cannot get db connection from pool");
         actions::create_history(
@@ -216,11 +275,14 @@ mod tests {
         )
         .expect("failed to seed history");
 
-        let mut query = HashMap::new();
-        query.insert("pwd".to_string(), history.working_directory.clone());
+        let query = SearchQuery {
+            pwd: Some(history.working_directory.clone()),
+            ..Default::default()
+        };
 
-        actions::search(&mut conn, &query)
-            .expect("failed to load seeded history")
+        let (results, _) =
+            actions::search(&mut conn, &query).expect("failed to load seeded history");
+        results
             .into_iter()
             .find(|candidate| {
                 candidate.hostname == history.hostname && candidate.command == history.command
@@ -237,15 +299,7 @@ mod tests {
         seed_history(&pool, matching.history());
         seed_history(&pool, other.history());
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool.clone()))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         let req = test::TestRequest::get()
             .uri(&format!("/?pwd={}", matching.history().working_directory))
@@ -253,6 +307,7 @@ mod tests {
         let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers().contains_key("x-total-count"));
 
         let body: Vec<History> = test::read_body_json(resp).await;
         assert_eq!(body.len(), 1);
@@ -271,20 +326,13 @@ mod tests {
 
         seed_history(&pool, history.history());
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool.clone()))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         let req = test::TestRequest::get().uri("/").to_request();
         let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::OK);
+        assert!(resp.headers().contains_key("x-total-count"));
 
         let body: Vec<History> = test::read_body_json(resp).await;
         assert!(body.iter().any(|candidate| {
@@ -301,15 +349,7 @@ mod tests {
 
         let seeded = seed_history(&pool, history.history());
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool.clone()))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         let req = test::TestRequest::get()
             .uri(&format!("/{}", seeded.id))
@@ -332,15 +372,7 @@ mod tests {
     #[actix_rt::test]
     async fn test_show_returns_null_for_missing_history() {
         let pool = setup_pool();
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         let req = test::TestRequest::get().uri("/2147483647").to_request();
         let resp = test::call_service(&app, req).await;
@@ -356,15 +388,7 @@ mod tests {
         let pool = setup_pool();
         let history = TestHistoryGuard::new(&pool, "create");
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool.clone()))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         let req = test::TestRequest::post()
             .uri("/")
@@ -380,9 +404,12 @@ mod tests {
         assert_eq!(body.command, history.history().command);
 
         let mut conn = pool.get().expect("cannot get db connection from pool");
-        let mut query = HashMap::new();
-        query.insert("pwd".to_string(), body.working_directory.clone());
-        let results = actions::search(&mut conn, &query).expect("failed to search created history");
+        let query = SearchQuery {
+            pwd: Some(body.working_directory.clone()),
+            ..Default::default()
+        };
+        let (results, _) =
+            actions::search(&mut conn, &query).expect("failed to search created history");
 
         assert!(results.iter().any(|candidate| {
             candidate.hostname == body.hostname && candidate.command == body.command
@@ -396,15 +423,7 @@ mod tests {
 
         let seeded = seed_history(&pool, history.history());
 
-        let app = test::init_service(
-            App::new()
-                .app_data(web::Data::new(pool.clone()))
-                .service(index)
-                .service(show)
-                .service(create)
-                .service(delete),
-        )
-        .await;
+        let app = init_test_app!(pool);
 
         let req = test::TestRequest::delete()
             .uri(&format!("/{}", seeded.id))
@@ -420,5 +439,80 @@ mod tests {
         let mut conn = pool.get().expect("cannot get db connection from pool");
         let found = actions::find(&mut conn, seeded.id).expect("failed to look up deleted history");
         assert!(found.is_none());
+    }
+
+    #[actix_rt::test]
+    async fn test_index_filters_by_hostname() {
+        let pool = setup_pool();
+        let target = TestHistoryGuard::new(&pool, "hostname-target");
+        let other = TestHistoryGuard::new(&pool, "hostname-other");
+
+        seed_history(&pool, target.history());
+        seed_history(&pool, other.history());
+
+        let app = init_test_app!(pool);
+
+        let req = test::TestRequest::get()
+            .uri(&format!("/?hostname={}", target.history().hostname))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let total = parse_total_count(resp.headers());
+        assert_eq!(total, 1);
+
+        let body: Vec<History> = test::read_body_json(resp).await;
+        assert_eq!(body.len(), 1);
+        assert_eq!(body[0].hostname, target.history().hostname);
+    }
+
+    #[actix_rt::test]
+    async fn test_index_pagination() {
+        let pool = setup_pool();
+
+        // Seed 3 records with the same unique pwd so they're isolated
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let pwd = format!("pwd-pagination-{unique}");
+        let hostname = format!("host-pagination-{unique}");
+        let _guard = HostnameGuard::new(&pool, &hostname);
+
+        {
+            let mut conn = pool.get().expect("cannot get db connection from pool");
+            for i in 0..3 {
+                actions::create_history(&mut conn, &hostname, &pwd, &format!("cmd-{i}"))
+                    .expect("failed to seed pagination history");
+            }
+        }
+
+        let app = init_test_app!(pool);
+
+        // Page 1: limit=2, offset=0
+        let req = test::TestRequest::get()
+            .uri(&format!("/?pwd={pwd}&limit=2&offset=0"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let total = parse_total_count(resp.headers());
+        assert_eq!(total, 3);
+        let page1: Vec<History> = test::read_body_json(resp).await;
+        assert_eq!(page1.len(), 2);
+
+        // Page 2: limit=2, offset=2
+        let req = test::TestRequest::get()
+            .uri(&format!("/?pwd={pwd}&limit=2&offset=2"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let page2: Vec<History> = test::read_body_json(resp).await;
+        assert_eq!(page2.len(), 1);
+
+        // No id overlap between pages
+        let ids1: Vec<i32> = page1.iter().map(|h| h.id).collect();
+        let ids2: Vec<i32> = page2.iter().map(|h| h.id).collect();
+        assert!(ids1.iter().all(|id| !ids2.contains(id)));
     }
 }
