@@ -361,9 +361,12 @@ mod tests {
             create_history(conn, "mp-host", b, "cmd-3")?;
             create_history(conn, "mp-host", a, "cmd-4")?;
 
-            let (page1, total1) = search(conn, &make_multi_pwd_query(&[a, b], None, Some(2), Some(0)))?;
-            let (page2, total2) = search(conn, &make_multi_pwd_query(&[a, b], None, Some(2), Some(2)))?;
-            let (page3, total3) = search(conn, &make_multi_pwd_query(&[a, b], None, Some(2), Some(4)))?;
+            let (page1, total1) =
+                search(conn, &make_multi_pwd_query(&[a, b], None, Some(2), Some(0)))?;
+            let (page2, total2) =
+                search(conn, &make_multi_pwd_query(&[a, b], None, Some(2), Some(2)))?;
+            let (page3, total3) =
+                search(conn, &make_multi_pwd_query(&[a, b], None, Some(2), Some(4)))?;
 
             assert_eq!((total1, total2, total3), (5, 5, 5));
             let commands: Vec<&str> = page1
