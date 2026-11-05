@@ -102,13 +102,13 @@ mod tests {
     }
 
     fn make_query(
-        pwd: Option<&str>,
+        pwds: &[&str],
         hostname: Option<&str>,
         limit: Option<i64>,
         offset: Option<i64>,
     ) -> models::SearchQuery {
         models::SearchQuery {
-            pwd: pwd.into_iter().map(str::to_string).collect(),
+            pwd: pwds.iter().map(|s| s.to_string()).collect(),
             hostname: hostname.map(str::to_string),
             limit,
             offset,
@@ -128,7 +128,7 @@ mod tests {
             assert_eq!(new_history.working_directory, w);
             assert_eq!(new_history.command, c);
 
-            let q = make_query(Some(w), None, None, None);
+            let q = make_query(&[w], None, None, None);
             let (results, total) = search(conn, &q)?;
 
             assert_eq!(results.len(), 1);
@@ -152,7 +152,7 @@ mod tests {
 
             create_history(conn, h, w, c)?;
 
-            let q = make_query(Some(w), None, None, None);
+            let q = make_query(&[w], None, None, None);
             let (results, _) = search(conn, &q)?;
             assert_eq!(results.len(), 1);
             let history_to_delete = &results[0];
@@ -177,7 +177,7 @@ mod tests {
 
             create_history(conn, h, w, c)?;
             diesel::sql_query("COMMIT;").execute(conn)?;
-            let q_all = make_query(None, None, Some(10000), None);
+            let q_all = make_query(&[], None, Some(10000), None);
             let (results1, _) = search(conn, &q_all)?;
             let initial_update_time = results1
                 .iter()
@@ -188,7 +188,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_secs(1));
             create_history(conn, h, w, c)?;
 
-            let q = make_query(Some(w), None, None, None);
+            let q = make_query(&[w], None, None, None);
             let (results2, total) = search(conn, &q)?;
             assert_eq!(results2.len(), 1, "Should not create a new record");
             assert_eq!(total, 1);
@@ -212,13 +212,13 @@ mod tests {
             create_history(conn, "host-c", w, "cmd-gamma")?;
 
             // First page: 2 items
-            let q1 = make_query(Some(w), None, Some(2), Some(0));
+            let q1 = make_query(&[w], None, Some(2), Some(0));
             let (page1, total) = search(conn, &q1)?;
             assert_eq!(page1.len(), 2);
             assert_eq!(total, 3);
 
             // Second page: 1 item
-            let q2 = make_query(Some(w), None, Some(2), Some(2));
+            let q2 = make_query(&[w], None, Some(2), Some(2));
             let (page2, total2) = search(conn, &q2)?;
             assert_eq!(page2.len(), 1);
             assert_eq!(total2, 3);
@@ -240,7 +240,7 @@ mod tests {
             create_history(conn, "target-host", w, "cmd-for-target")?;
             create_history(conn, "other-host", w, "cmd-for-other")?;
 
-            let q = make_query(None, Some("target-host"), None, None);
+            let q = make_query(&[], Some("target-host"), None, None);
             let (results, total) = search(conn, &q)?;
 
             assert_eq!(total, 1);
@@ -261,7 +261,7 @@ mod tests {
             }
 
             // limit=2 but total should reflect all 5
-            let q = make_query(Some(w), None, Some(2), Some(0));
+            let q = make_query(&[w], None, Some(2), Some(0));
             let (results, total) = search(conn, &q)?;
 
             assert_eq!(results.len(), 2);
@@ -280,7 +280,7 @@ mod tests {
             create_history(conn, "combo-host", "/other/dir", "other-cmd")?;
             create_history(conn, "other-host", w, "yet-other-cmd")?;
 
-            let q = make_query(Some(w), Some("combo-host"), None, None);
+            let q = make_query(&[w], Some("combo-host"), None, None);
             let (results, total) = search(conn, &q)?;
 
             assert_eq!(total, 1);
@@ -310,20 +310,6 @@ mod tests {
         assert_eq!(q_zero.effective_limit(), 1);
     }
 
-    fn make_multi_pwd_query(
-        pwds: &[&str],
-        hostname: Option<&str>,
-        limit: Option<i64>,
-        offset: Option<i64>,
-    ) -> models::SearchQuery {
-        models::SearchQuery {
-            pwd: pwds.iter().map(|s| s.to_string()).collect(),
-            hostname: hostname.map(str::to_string),
-            limit,
-            offset,
-        }
-    }
-
     #[test]
     fn test_search_multiple_pwds() {
         let mut conn = setup();
@@ -337,7 +323,7 @@ mod tests {
             // Prefix of `a` must not match: comparison is exact.
             create_history(conn, "multi-host", "/multi", "cmd-prefix")?;
 
-            let q = make_multi_pwd_query(&[a, b], None, None, None);
+            let q = make_query(&[a, b], None, None, None);
             let (results, total) = search(conn, &q)?;
 
             assert_eq!(total, 3);
@@ -361,12 +347,9 @@ mod tests {
             create_history(conn, "mp-host", b, "cmd-3")?;
             create_history(conn, "mp-host", a, "cmd-4")?;
 
-            let (page1, total1) =
-                search(conn, &make_multi_pwd_query(&[a, b], None, Some(2), Some(0)))?;
-            let (page2, total2) =
-                search(conn, &make_multi_pwd_query(&[a, b], None, Some(2), Some(2)))?;
-            let (page3, total3) =
-                search(conn, &make_multi_pwd_query(&[a, b], None, Some(2), Some(4)))?;
+            let (page1, total1) = search(conn, &make_query(&[a, b], None, Some(2), Some(0)))?;
+            let (page2, total2) = search(conn, &make_query(&[a, b], None, Some(2), Some(2)))?;
+            let (page3, total3) = search(conn, &make_query(&[a, b], None, Some(2), Some(4)))?;
 
             assert_eq!((total1, total2, total3), (5, 5, 5));
             let commands: Vec<&str> = page1
@@ -391,7 +374,7 @@ mod tests {
             create_history(conn, "mh-target", b, "cmd-b")?;
             create_history(conn, "mh-other", a, "cmd-other-a")?;
 
-            let q = make_multi_pwd_query(&[a, b], Some("mh-target"), None, None);
+            let q = make_query(&[a, b], Some("mh-target"), None, None);
             let (results, total) = search(conn, &q)?;
 
             assert_eq!(total, 2);
