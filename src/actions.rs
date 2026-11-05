@@ -8,8 +8,8 @@ type HistoriesQuery<'a> = crate::schema::histories::BoxedQuery<'a, diesel::pg::P
 fn with_filters<'a>(query: HistoriesQuery<'a>, q: &'a models::SearchQuery) -> HistoriesQuery<'a> {
     use crate::schema::histories::dsl::*;
     let mut query = query;
-    if let Some(ref pwd) = q.pwd {
-        query = query.filter(working_directory.eq(pwd));
+    if !q.pwd.is_empty() {
+        query = query.filter(working_directory.eq_any(&q.pwd));
     }
     if let Some(ref host) = q.hostname {
         query = query.filter(hostname.eq(host));
@@ -108,7 +108,7 @@ mod tests {
         offset: Option<i64>,
     ) -> models::SearchQuery {
         models::SearchQuery {
-            pwd: pwd.map(str::to_string),
+            pwd: pwd.into_iter().map(str::to_string).collect(),
             hostname: hostname.map(str::to_string),
             limit,
             offset,
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn test_search_limit_cap() {
         let q = models::SearchQuery {
-            pwd: None,
+            pwd: vec![],
             hostname: None,
             limit: Some(99_999),
             offset: None,
@@ -302,11 +302,99 @@ mod tests {
         assert_eq!(q.effective_limit(), 10_000);
 
         let q_zero = models::SearchQuery {
-            pwd: None,
+            pwd: vec![],
             hostname: None,
             limit: Some(0),
             offset: None,
         };
         assert_eq!(q_zero.effective_limit(), 1);
+    }
+
+    fn make_multi_pwd_query(
+        pwds: &[&str],
+        hostname: Option<&str>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> models::SearchQuery {
+        models::SearchQuery {
+            pwd: pwds.iter().map(|s| s.to_string()).collect(),
+            hostname: hostname.map(str::to_string),
+            limit,
+            offset,
+        }
+    }
+
+    #[test]
+    fn test_search_multiple_pwds() {
+        let mut conn = setup();
+        conn.test_transaction::<_, diesel::result::Error, _>(|conn| {
+            let a = "/multi/worktree";
+            let b = "/multi/repo";
+            create_history(conn, "multi-host", a, "cmd-a1")?;
+            create_history(conn, "multi-host", b, "cmd-b1")?;
+            create_history(conn, "multi-host", a, "cmd-a2")?;
+            create_history(conn, "multi-host", "/multi/other", "cmd-other")?;
+            // Prefix of `a` must not match: comparison is exact.
+            create_history(conn, "multi-host", "/multi", "cmd-prefix")?;
+
+            let q = make_multi_pwd_query(&[a, b], None, None, None);
+            let (results, total) = search(conn, &q)?;
+
+            assert_eq!(total, 3);
+            let commands: Vec<&str> = results.iter().map(|h| h.command.as_str()).collect();
+            // Within one transaction updated_at is equal, so order falls back to id desc.
+            assert_eq!(commands, vec!["cmd-a2", "cmd-b1", "cmd-a1"]);
+
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn test_search_multiple_pwds_pagination() {
+        let mut conn = setup();
+        conn.test_transaction::<_, diesel::result::Error, _>(|conn| {
+            let a = "/multi-page/worktree";
+            let b = "/multi-page/repo";
+            create_history(conn, "mp-host", a, "cmd-0")?;
+            create_history(conn, "mp-host", b, "cmd-1")?;
+            create_history(conn, "mp-host", a, "cmd-2")?;
+            create_history(conn, "mp-host", b, "cmd-3")?;
+            create_history(conn, "mp-host", a, "cmd-4")?;
+
+            let (page1, total1) = search(conn, &make_multi_pwd_query(&[a, b], None, Some(2), Some(0)))?;
+            let (page2, total2) = search(conn, &make_multi_pwd_query(&[a, b], None, Some(2), Some(2)))?;
+            let (page3, total3) = search(conn, &make_multi_pwd_query(&[a, b], None, Some(2), Some(4)))?;
+
+            assert_eq!((total1, total2, total3), (5, 5, 5));
+            let commands: Vec<&str> = page1
+                .iter()
+                .chain(page2.iter())
+                .chain(page3.iter())
+                .map(|h| h.command.as_str())
+                .collect();
+            assert_eq!(commands, vec!["cmd-4", "cmd-3", "cmd-2", "cmd-1", "cmd-0"]);
+
+            Ok(())
+        });
+    }
+
+    #[test]
+    fn test_search_multiple_pwds_with_hostname() {
+        let mut conn = setup();
+        conn.test_transaction::<_, diesel::result::Error, _>(|conn| {
+            let a = "/multi-host/worktree";
+            let b = "/multi-host/repo";
+            create_history(conn, "mh-target", a, "cmd-a")?;
+            create_history(conn, "mh-target", b, "cmd-b")?;
+            create_history(conn, "mh-other", a, "cmd-other-a")?;
+
+            let q = make_multi_pwd_query(&[a, b], Some("mh-target"), None, None);
+            let (results, total) = search(conn, &q)?;
+
+            assert_eq!(total, 2);
+            assert!(results.iter().all(|h| h.hostname == "mh-target"));
+
+            Ok(())
+        });
     }
 }

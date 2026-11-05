@@ -17,7 +17,12 @@ use crate::models::*;
 type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
 #[get("/")]
-async fn index(pool: web::Data<DbPool>, q: web::Query<SearchQuery>) -> Result<impl Responder> {
+async fn index(
+    pool: web::Data<DbPool>,
+    pairs: web::Query<Vec<(String, String)>>,
+) -> Result<impl Responder> {
+    // `web::Query<SearchQuery>` cannot collect repeated `pwd` keys, so parse raw pairs.
+    let q = SearchQuery::from_pairs(pairs.into_inner()).map_err(error::ErrorBadRequest)?;
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
     match web::block(move || actions::search(&mut conn, &q)).await {
@@ -276,7 +281,7 @@ mod tests {
         .expect("failed to seed history");
 
         let query = SearchQuery {
-            pwd: Some(history.working_directory.clone()),
+            pwd: vec![history.working_directory.clone()],
             ..Default::default()
         };
 
@@ -405,7 +410,7 @@ mod tests {
 
         let mut conn = pool.get().expect("cannot get db connection from pool");
         let query = SearchQuery {
-            pwd: Some(body.working_directory.clone()),
+            pwd: vec![body.working_directory.clone()],
             ..Default::default()
         };
         let (results, _) =
@@ -514,5 +519,71 @@ mod tests {
         let ids1: Vec<i32> = page1.iter().map(|h| h.id).collect();
         let ids2: Vec<i32> = page2.iter().map(|h| h.id).collect();
         assert!(ids1.iter().all(|id| !ids2.contains(id)));
+    }
+
+    #[actix_rt::test]
+    async fn test_index_filters_by_multiple_pwds_with_pagination() {
+        let pool = setup_pool();
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let pwd_a = format!("pwd-multi-a-{unique}");
+        let pwd_b = format!("pwd-multi-b-{unique}");
+        let pwd_other = format!("pwd-multi-other-{unique}");
+        let hostname = format!("host-multi-{unique}");
+        let _guard = HostnameGuard::new(&pool, &hostname);
+
+        {
+            let mut conn = pool.get().expect("cannot get db connection from pool");
+            for (pwd, cmd) in [
+                (&pwd_a, "cmd-0"),
+                (&pwd_b, "cmd-1"),
+                (&pwd_a, "cmd-2"),
+                (&pwd_other, "cmd-other"),
+            ] {
+                actions::create_history(&mut conn, &hostname, pwd, cmd)
+                    .expect("failed to seed multi pwd history");
+            }
+        }
+
+        let app = init_test_app!(pool);
+
+        let fetch = |offset: i64| {
+            test::TestRequest::get()
+                .uri(&format!(
+                    "/?pwd={pwd_a}&pwd={pwd_b}&hostname={hostname}&limit=2&offset={offset}"
+                ))
+                .to_request()
+        };
+
+        let resp = test::call_service(&app, fetch(0)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(parse_total_count(resp.headers()), 3);
+        let page1: Vec<History> = test::read_body_json(resp).await;
+
+        let resp = test::call_service(&app, fetch(2)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(parse_total_count(resp.headers()), 3);
+        let page2: Vec<History> = test::read_body_json(resp).await;
+
+        let commands: Vec<&str> = page1
+            .iter()
+            .chain(page2.iter())
+            .map(|h| h.command.as_str())
+            .collect();
+        assert_eq!(commands, vec!["cmd-2", "cmd-1", "cmd-0"]);
+    }
+
+    #[actix_rt::test]
+    async fn test_index_rejects_invalid_limit() {
+        let pool = setup_pool();
+        let app = init_test_app!(pool);
+
+        let req = test::TestRequest::get().uri("/?limit=abc").to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 }
