@@ -8,8 +8,8 @@ type HistoriesQuery<'a> = crate::schema::histories::BoxedQuery<'a, diesel::pg::P
 fn with_filters<'a>(query: HistoriesQuery<'a>, q: &'a models::SearchQuery) -> HistoriesQuery<'a> {
     use crate::schema::histories::dsl::*;
     let mut query = query;
-    if !q.pwd.is_empty() {
-        query = query.filter(working_directory.eq_any(&q.pwd));
+    if !q.pwds.is_empty() {
+        query = query.filter(working_directory.eq_any(&q.pwds));
     }
     if let Some(ref host) = q.hostname {
         query = query.filter(hostname.eq(host));
@@ -108,7 +108,7 @@ mod tests {
         offset: Option<i64>,
     ) -> models::SearchQuery {
         models::SearchQuery {
-            pwd: pwds.iter().map(|s| s.to_string()).collect(),
+            pwds: pwds.iter().map(|s| s.to_string()).collect(),
             hostname: hostname.map(str::to_string),
             limit,
             offset,
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn test_search_limit_cap() {
         let q = models::SearchQuery {
-            pwd: vec![],
+            pwds: vec![],
             hostname: None,
             limit: Some(99_999),
             offset: None,
@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(q.effective_limit(), 10_000);
 
         let q_zero = models::SearchQuery {
-            pwd: vec![],
+            pwds: vec![],
             hostname: None,
             limit: Some(0),
             offset: None,

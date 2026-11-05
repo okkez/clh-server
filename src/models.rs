@@ -46,8 +46,9 @@ pub struct DeletedHistoryCount {
 /// keys must appear at most once; repeating them is a deserialize error.
 #[derive(Debug, Default, Deserialize)]
 pub struct SearchQuery {
-    #[serde(default)]
-    pub pwd: Vec<String>,
+    /// Values of every `pwd` key in the query string.
+    #[serde(default, rename = "pwd")]
+    pub pwds: Vec<String>,
     pub hostname: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
@@ -105,19 +106,19 @@ mod tests {
     #[test]
     fn test_query_collects_repeated_pwd_even_when_interleaved() {
         let q = parse("pwd=%2Fa&hostname=h&pwd=%2Fb").unwrap();
-        assert_eq!(q.pwd, vec!["/a", "/b"]);
+        assert_eq!(q.pwds, vec!["/a", "/b"]);
     }
 
     #[test]
     fn test_query_keeps_empty_pwd_as_filter_value() {
         let q = parse("pwd=").unwrap();
-        assert_eq!(q.pwd, vec![""]);
+        assert_eq!(q.pwds, vec![""]);
     }
 
     #[test]
     fn test_query_parses_single_valued_keys() {
         let q = parse("hostname=h&limit=10&offset=20").unwrap();
-        assert!(q.pwd.is_empty());
+        assert!(q.pwds.is_empty());
         assert_eq!(q.hostname.as_deref(), Some("h"));
         assert_eq!(q.limit, Some(10));
         assert_eq!(q.offset, Some(20));
@@ -126,7 +127,7 @@ mod tests {
     #[test]
     fn test_query_ignores_unknown_keys() {
         let q = parse("unknown=x").unwrap();
-        assert!(q.pwd.is_empty());
+        assert!(q.pwds.is_empty());
         assert!(q.hostname.is_none());
     }
 

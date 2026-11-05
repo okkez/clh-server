@@ -280,7 +280,7 @@ mod tests {
         .expect("failed to seed history");
 
         let query = SearchQuery {
-            pwd: vec![history.working_directory.clone()],
+            pwds: vec![history.working_directory.clone()],
             ..Default::default()
         };
 
@@ -409,7 +409,7 @@ mod tests {
 
         let mut conn = pool.get().expect("cannot get db connection from pool");
         let query = SearchQuery {
-            pwd: vec![body.working_directory.clone()],
+            pwds: vec![body.working_directory.clone()],
             ..Default::default()
         };
         let (results, _) =
