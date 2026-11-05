@@ -55,6 +55,23 @@ pub struct SearchQuery {
 }
 
 impl SearchQuery {
+    /// Upper bound on repeated `pwd` keys. Clients send a worktree and its
+    /// original repository root (2); the cap keeps a request from turning
+    /// into a huge `IN` list that both the count and the page query must scan.
+    pub const MAX_PWDS: usize = 5;
+
+    /// Rejects queries that are well-formed but outside the supported range.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.pwds.len() > Self::MAX_PWDS {
+            return Err(format!(
+                "too many pwd parameters: {} given, at most {} allowed",
+                self.pwds.len(),
+                Self::MAX_PWDS
+            ));
+        }
+        Ok(())
+    }
+
     /// Returns the effective limit, capped at 10,000.
     pub fn effective_limit(&self) -> i64 {
         self.limit.unwrap_or(1000).clamp(1, 10_000)
@@ -135,6 +152,26 @@ mod tests {
     fn test_query_rejects_repeated_single_valued_keys() {
         assert!(parse("hostname=a&hostname=b").is_err());
         assert!(parse("limit=1&limit=2").is_err());
+    }
+
+    fn query_with_pwds(count: usize) -> SearchQuery {
+        SearchQuery {
+            pwds: (0..count).map(|i| format!("/dir/{i}")).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_validate_accepts_pwds_up_to_max() {
+        assert!(query_with_pwds(SearchQuery::MAX_PWDS).validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_pwds_over_max() {
+        let err = query_with_pwds(SearchQuery::MAX_PWDS + 1)
+            .validate()
+            .unwrap_err();
+        assert!(err.contains("too many pwd parameters"), "{err}");
     }
 
     #[test]

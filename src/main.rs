@@ -22,6 +22,7 @@ async fn index(pool: web::Data<DbPool>, req: HttpRequest) -> Result<impl Respond
     // Keep the same message prefix that `web::Query` used for its 400 responses.
     let q: SearchQuery = serde_html_form::from_str(req.query_string())
         .map_err(|e| error::ErrorBadRequest(format!("Query deserialize error: {e}")))?;
+    q.validate().map_err(error::ErrorBadRequest)?;
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
     match web::block(move || actions::search(&mut conn, &q)).await {
@@ -587,6 +588,23 @@ mod tests {
         let app = init_test_app!(pool);
 
         let req = test::TestRequest::get().uri("/?limit=abc").to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[actix_rt::test]
+    async fn test_index_rejects_too_many_pwds() {
+        let pool = setup_pool();
+        let app = init_test_app!(pool);
+
+        let pairs: Vec<(&str, String)> = (0..=SearchQuery::MAX_PWDS)
+            .map(|i| ("pwd", format!("/dir/{i}")))
+            .collect();
+        let query = serde_html_form::to_string(&pairs).expect("failed to encode query");
+        let req = test::TestRequest::get()
+            .uri(&format!("/?{query}"))
+            .to_request();
         let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
