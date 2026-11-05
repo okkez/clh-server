@@ -1,5 +1,5 @@
 use actix_web::middleware::Logger;
-use actix_web::{delete, error, get, post, web, HttpResponse};
+use actix_web::{delete, error, get, post, web, HttpRequest, HttpResponse};
 use actix_web::{App, HttpServer, Responder, Result};
 use listenfd::ListenFd;
 
@@ -17,12 +17,11 @@ use crate::models::*;
 type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
 #[get("/")]
-async fn index(
-    pool: web::Data<DbPool>,
-    pairs: web::Query<Vec<(String, String)>>,
-) -> Result<impl Responder> {
-    // `web::Query<SearchQuery>` cannot collect repeated `pwd` keys, so parse raw pairs.
-    let q = SearchQuery::from_pairs(pairs.into_inner()).map_err(error::ErrorBadRequest)?;
+async fn index(pool: web::Data<DbPool>, req: HttpRequest) -> Result<impl Responder> {
+    // `web::Query` (serde_urlencoded) cannot collect repeated `pwd` keys into a Vec.
+    // Keep the same message prefix that `web::Query` used for its 400 responses.
+    let q: SearchQuery = serde_html_form::from_str(req.query_string())
+        .map_err(|e| error::ErrorBadRequest(format!("Query deserialize error: {e}")))?;
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
     match web::block(move || actions::search(&mut conn, &q)).await {
@@ -582,6 +581,20 @@ mod tests {
         let app = init_test_app!(pool);
 
         let req = test::TestRequest::get().uri("/?limit=abc").to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[actix_rt::test]
+    async fn test_index_rejects_repeated_hostname() {
+        // Only `pwd` is OR-ed; silently picking one hostname would hide results.
+        let pool = setup_pool();
+        let app = init_test_app!(pool);
+
+        let req = test::TestRequest::get()
+            .uri("/?hostname=a&hostname=b")
+            .to_request();
         let resp = test::call_service(&app, req).await;
 
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
