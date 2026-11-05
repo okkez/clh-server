@@ -170,11 +170,16 @@ mod tests {
             .expect("X-Total-Count header should be a valid i64")
     }
 
-    fn test_history(label: &str) -> NewHistory {
-        let unique = SystemTime::now()
+    /// Returns a value that keeps rows seeded by concurrently running tests apart.
+    fn unique_suffix() -> u128 {
+        SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system time should be after unix epoch")
-            .as_nanos();
+            .as_nanos()
+    }
+
+    fn test_history(label: &str) -> NewHistory {
+        let unique = unique_suffix();
 
         NewHistory {
             hostname: format!("handler-test-{label}-{unique}"),
@@ -476,10 +481,7 @@ mod tests {
         let pool = setup_pool();
 
         // Seed 3 records with the same unique pwd so they're isolated
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let unique = unique_suffix();
         let pwd = format!("pwd-pagination-{unique}");
         let hostname = format!("host-pagination-{unique}");
         let _guard = HostnameGuard::new(&pool, &hostname);
@@ -524,13 +526,11 @@ mod tests {
     async fn test_index_filters_by_multiple_pwds_with_pagination() {
         let pool = setup_pool();
 
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let pwd_a = format!("pwd-multi-a-{unique}");
-        let pwd_b = format!("pwd-multi-b-{unique}");
-        let pwd_other = format!("pwd-multi-other-{unique}");
+        let unique = unique_suffix();
+        // Real paths: `/` plus characters that must be percent-encoded in a query.
+        let pwd_a = format!("/home/user/my repo&wt-{unique}");
+        let pwd_b = format!("/home/user/my repo-{unique}");
+        let pwd_other = format!("/home/user/other-{unique}");
         let hostname = format!("host-multi-{unique}");
         let _guard = HostnameGuard::new(&pool, &hostname);
 
@@ -549,20 +549,26 @@ mod tests {
 
         let app = init_test_app!(pool);
 
-        let fetch = |offset: i64| {
+        let page_request = |offset: i64| {
+            let query = serde_html_form::to_string([
+                ("pwd", pwd_a.as_str()),
+                ("pwd", pwd_b.as_str()),
+                ("hostname", hostname.as_str()),
+                ("limit", "2"),
+                ("offset", &offset.to_string()),
+            ])
+            .expect("failed to encode query");
             test::TestRequest::get()
-                .uri(&format!(
-                    "/?pwd={pwd_a}&pwd={pwd_b}&hostname={hostname}&limit=2&offset={offset}"
-                ))
+                .uri(&format!("/?{query}"))
                 .to_request()
         };
 
-        let resp = test::call_service(&app, fetch(0)).await;
+        let resp = test::call_service(&app, page_request(0)).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(parse_total_count(resp.headers()), 3);
         let page1: Vec<History> = test::read_body_json(resp).await;
 
-        let resp = test::call_service(&app, fetch(2)).await;
+        let resp = test::call_service(&app, page_request(2)).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(parse_total_count(resp.headers()), 3);
         let page2: Vec<History> = test::read_body_json(resp).await;
