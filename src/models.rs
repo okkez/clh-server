@@ -38,7 +38,8 @@ pub struct DeletedHistoryCount {
 /// Query parameters for `GET /`
 ///
 /// `pwd` may be repeated (`?pwd=/a&pwd=/b`); histories whose working directory
-/// exactly matches any of them are returned. An empty `pwd` means no filter.
+/// exactly matches any of them are returned. Without any `pwd` key no directory
+/// filter is applied; `pwd=` (empty value) matches an empty working directory.
 ///
 /// Deserialize with `serde_html_form`, not `serde_urlencoded` (actix's
 /// `web::Query`): only the former collects repeated keys into a `Vec`. Other
@@ -105,6 +106,12 @@ mod tests {
     fn test_query_collects_repeated_pwd_even_when_interleaved() {
         let q = parse("pwd=%2Fa&hostname=h&pwd=%2Fb").unwrap();
         assert_eq!(q.pwd, vec!["/a", "/b"]);
+    }
+
+    #[test]
+    fn test_query_keeps_empty_pwd_as_filter_value() {
+        let q = parse("pwd=").unwrap();
+        assert_eq!(q.pwd, vec![""]);
     }
 
     #[test]
