@@ -316,12 +316,12 @@ mod tests {
         conn.test_transaction::<_, diesel::result::Error, _>(|conn| {
             let a = "/multi/worktree";
             let b = "/multi/repo";
-            create_history(conn, "multi-host", a, "cmd-a1")?;
-            create_history(conn, "multi-host", b, "cmd-b1")?;
-            create_history(conn, "multi-host", a, "cmd-a2")?;
-            create_history(conn, "multi-host", "/multi/other", "cmd-other")?;
+            create_history(conn, "some-host", a, "cmd-a1")?;
+            create_history(conn, "some-host", b, "cmd-b1")?;
+            create_history(conn, "some-host", a, "cmd-a2")?;
+            create_history(conn, "some-host", "/multi/other", "cmd-other")?;
             // Prefix of `a` must not match: comparison is exact.
-            create_history(conn, "multi-host", "/multi", "cmd-prefix")?;
+            create_history(conn, "some-host", "/multi", "cmd-prefix")?;
 
             let q = make_query(&[a, b], None, None, None);
             let (results, total) = search(conn, &q)?;
@@ -341,11 +341,11 @@ mod tests {
         conn.test_transaction::<_, diesel::result::Error, _>(|conn| {
             let a = "/multi-page/worktree";
             let b = "/multi-page/repo";
-            create_history(conn, "mp-host", a, "cmd-0")?;
-            create_history(conn, "mp-host", b, "cmd-1")?;
-            create_history(conn, "mp-host", a, "cmd-2")?;
-            create_history(conn, "mp-host", b, "cmd-3")?;
-            create_history(conn, "mp-host", a, "cmd-4")?;
+            create_history(conn, "some-host", a, "cmd-0")?;
+            create_history(conn, "some-host", b, "cmd-1")?;
+            create_history(conn, "some-host", a, "cmd-2")?;
+            create_history(conn, "some-host", b, "cmd-3")?;
+            create_history(conn, "some-host", a, "cmd-4")?;
 
             let (page1, total1) = search(conn, &make_query(&[a, b], None, Some(2), Some(0)))?;
             let (page2, total2) = search(conn, &make_query(&[a, b], None, Some(2), Some(2)))?;
@@ -370,15 +370,15 @@ mod tests {
         conn.test_transaction::<_, diesel::result::Error, _>(|conn| {
             let a = "/multi-host/worktree";
             let b = "/multi-host/repo";
-            create_history(conn, "mh-target", a, "cmd-a")?;
-            create_history(conn, "mh-target", b, "cmd-b")?;
-            create_history(conn, "mh-other", a, "cmd-other-a")?;
+            create_history(conn, "target-host", a, "cmd-a")?;
+            create_history(conn, "target-host", b, "cmd-b")?;
+            create_history(conn, "other-host", a, "cmd-other-a")?;
 
-            let q = make_query(&[a, b], Some("mh-target"), None, None);
+            let q = make_query(&[a, b], Some("target-host"), None, None);
             let (results, total) = search(conn, &q)?;
 
             assert_eq!(total, 2);
-            assert!(results.iter().all(|h| h.hostname == "mh-target"));
+            assert!(results.iter().all(|h| h.hostname == "target-host"));
 
             Ok(())
         });
