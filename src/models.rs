@@ -36,15 +36,42 @@ pub struct DeletedHistoryCount {
 }
 
 /// Query parameters for `GET /`
+///
+/// `pwd` may be repeated (`?pwd=/a&pwd=/b`); histories whose working directory
+/// exactly matches any of them are returned. Without any `pwd` key no directory
+/// filter is applied; `pwd=` (empty value) matches an empty working directory.
+///
+/// Deserialize with `serde_html_form`, not `serde_urlencoded` (actix's
+/// `web::Query`): only the former collects repeated keys into a `Vec`. Other
+/// keys must appear at most once; repeating them is a deserialize error.
 #[derive(Debug, Default, Deserialize)]
 pub struct SearchQuery {
-    pub pwd: Option<String>,
+    /// Values of every `pwd` key in the query string.
+    #[serde(default, rename = "pwd")]
+    pub pwds: Vec<String>,
     pub hostname: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
 }
 
 impl SearchQuery {
+    /// Upper bound on repeated `pwd` keys. Clients send a worktree and its
+    /// original repository root (2); the cap keeps a request from turning
+    /// into a huge `IN` list that both the count and the page query must scan.
+    pub const MAX_PWDS: usize = 5;
+
+    /// Rejects queries that are well-formed but outside the supported range.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.pwds.len() > Self::MAX_PWDS {
+            return Err(format!(
+                "too many pwd parameters: {} given, at most {} allowed",
+                self.pwds.len(),
+                Self::MAX_PWDS
+            ));
+        }
+        Ok(())
+    }
+
     /// Returns the effective limit, capped at 10,000.
     pub fn effective_limit(&self) -> i64 {
         self.limit.unwrap_or(1000).clamp(1, 10_000)
@@ -82,5 +109,74 @@ impl Responder for DeletedHistoryCount {
 
     fn respond_to(self, _req: &HttpRequest) -> HttpResponse<Self::Body> {
         HttpResponse::Ok().json(&self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(query: &str) -> Result<SearchQuery, String> {
+        serde_html_form::from_str(query).map_err(|e| e.to_string())
+    }
+
+    #[test]
+    fn test_query_collects_repeated_pwd_even_when_interleaved() {
+        let q = parse("pwd=%2Fa&hostname=h&pwd=%2Fb").unwrap();
+        assert_eq!(q.pwds, vec!["/a", "/b"]);
+    }
+
+    #[test]
+    fn test_query_keeps_empty_pwd_as_filter_value() {
+        let q = parse("pwd=").unwrap();
+        assert_eq!(q.pwds, vec![""]);
+    }
+
+    #[test]
+    fn test_query_parses_single_valued_keys() {
+        let q = parse("hostname=h&limit=10&offset=20").unwrap();
+        assert!(q.pwds.is_empty());
+        assert_eq!(q.hostname.as_deref(), Some("h"));
+        assert_eq!(q.limit, Some(10));
+        assert_eq!(q.offset, Some(20));
+    }
+
+    #[test]
+    fn test_query_ignores_unknown_keys() {
+        let q = parse("unknown=x").unwrap();
+        assert!(q.pwds.is_empty());
+        assert!(q.hostname.is_none());
+    }
+
+    #[test]
+    fn test_query_rejects_repeated_single_valued_keys() {
+        assert!(parse("hostname=a&hostname=b").is_err());
+        assert!(parse("limit=1&limit=2").is_err());
+    }
+
+    fn query_with_pwds(count: usize) -> SearchQuery {
+        SearchQuery {
+            pwds: (0..count).map(|i| format!("/dir/{i}")).collect(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_validate_accepts_pwds_up_to_max() {
+        assert!(query_with_pwds(SearchQuery::MAX_PWDS).validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_rejects_pwds_over_max() {
+        let err = query_with_pwds(SearchQuery::MAX_PWDS + 1)
+            .validate()
+            .unwrap_err();
+        assert!(err.contains("too many pwd parameters"), "{err}");
+    }
+
+    #[test]
+    fn test_query_rejects_invalid_number() {
+        assert!(parse("limit=abc").is_err());
+        assert!(parse("offset=abc").is_err());
     }
 }

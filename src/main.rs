@@ -1,5 +1,5 @@
 use actix_web::middleware::Logger;
-use actix_web::{delete, error, get, post, web, HttpResponse};
+use actix_web::{delete, error, get, post, web, HttpRequest, HttpResponse};
 use actix_web::{App, HttpServer, Responder, Result};
 use listenfd::ListenFd;
 
@@ -17,7 +17,12 @@ use crate::models::*;
 type DbPool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
 #[get("/")]
-async fn index(pool: web::Data<DbPool>, q: web::Query<SearchQuery>) -> Result<impl Responder> {
+async fn index(pool: web::Data<DbPool>, req: HttpRequest) -> Result<impl Responder> {
+    // `web::Query` (serde_urlencoded) cannot collect repeated `pwd` keys into a Vec.
+    // Keep the same message prefix that `web::Query` used for its 400 responses.
+    let q: SearchQuery = serde_html_form::from_str(req.query_string())
+        .map_err(|e| error::ErrorBadRequest(format!("Query deserialize error: {e}")))?;
+    q.validate().map_err(error::ErrorBadRequest)?;
     let mut conn = pool.get().expect("cannot get db connection from pool");
 
     match web::block(move || actions::search(&mut conn, &q)).await {
@@ -166,11 +171,16 @@ mod tests {
             .expect("X-Total-Count header should be a valid i64")
     }
 
-    fn test_history(label: &str) -> NewHistory {
-        let unique = SystemTime::now()
+    /// Returns a value that keeps rows seeded by concurrently running tests apart.
+    fn unique_suffix() -> u128 {
+        SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system time should be after unix epoch")
-            .as_nanos();
+            .as_nanos()
+    }
+
+    fn test_history(label: &str) -> NewHistory {
+        let unique = unique_suffix();
 
         NewHistory {
             hostname: format!("handler-test-{label}-{unique}"),
@@ -276,7 +286,7 @@ mod tests {
         .expect("failed to seed history");
 
         let query = SearchQuery {
-            pwd: Some(history.working_directory.clone()),
+            pwds: vec![history.working_directory.clone()],
             ..Default::default()
         };
 
@@ -405,7 +415,7 @@ mod tests {
 
         let mut conn = pool.get().expect("cannot get db connection from pool");
         let query = SearchQuery {
-            pwd: Some(body.working_directory.clone()),
+            pwds: vec![body.working_directory.clone()],
             ..Default::default()
         };
         let (results, _) =
@@ -472,10 +482,7 @@ mod tests {
         let pool = setup_pool();
 
         // Seed 3 records with the same unique pwd so they're isolated
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let unique = unique_suffix();
         let pwd = format!("pwd-pagination-{unique}");
         let hostname = format!("host-pagination-{unique}");
         let _guard = HostnameGuard::new(&pool, &hostname);
@@ -514,5 +521,106 @@ mod tests {
         let ids1: Vec<i32> = page1.iter().map(|h| h.id).collect();
         let ids2: Vec<i32> = page2.iter().map(|h| h.id).collect();
         assert!(ids1.iter().all(|id| !ids2.contains(id)));
+    }
+
+    #[actix_rt::test]
+    async fn test_index_filters_by_multiple_pwds_with_pagination() {
+        let pool = setup_pool();
+
+        let unique = unique_suffix();
+        // Real paths: `/` plus characters that must be percent-encoded in a query.
+        let pwd_a = format!("/home/user/my repo&wt-{unique}");
+        let pwd_b = format!("/home/user/my repo-{unique}");
+        let pwd_other = format!("/home/user/other-{unique}");
+        let hostname = format!("host-multi-{unique}");
+        let _guard = HostnameGuard::new(&pool, &hostname);
+
+        {
+            let mut conn = pool.get().expect("cannot get db connection from pool");
+            for (pwd, cmd) in [
+                (&pwd_a, "cmd-0"),
+                (&pwd_b, "cmd-1"),
+                (&pwd_a, "cmd-2"),
+                (&pwd_other, "cmd-other"),
+            ] {
+                actions::create_history(&mut conn, &hostname, pwd, cmd)
+                    .expect("failed to seed multi pwd history");
+            }
+        }
+
+        let app = init_test_app!(pool);
+
+        let page_request = |offset: i64| {
+            let query = serde_html_form::to_string([
+                ("pwd", pwd_a.as_str()),
+                ("pwd", pwd_b.as_str()),
+                ("hostname", hostname.as_str()),
+                ("limit", "2"),
+                ("offset", &offset.to_string()),
+            ])
+            .expect("failed to encode query");
+            test::TestRequest::get()
+                .uri(&format!("/?{query}"))
+                .to_request()
+        };
+
+        let resp = test::call_service(&app, page_request(0)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(parse_total_count(resp.headers()), 3);
+        let page1: Vec<History> = test::read_body_json(resp).await;
+
+        let resp = test::call_service(&app, page_request(2)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(parse_total_count(resp.headers()), 3);
+        let page2: Vec<History> = test::read_body_json(resp).await;
+
+        let commands: Vec<&str> = page1
+            .iter()
+            .chain(page2.iter())
+            .map(|h| h.command.as_str())
+            .collect();
+        assert_eq!(commands, vec!["cmd-2", "cmd-1", "cmd-0"]);
+    }
+
+    #[actix_rt::test]
+    async fn test_index_rejects_invalid_limit() {
+        let pool = setup_pool();
+        let app = init_test_app!(pool);
+
+        let req = test::TestRequest::get().uri("/?limit=abc").to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[actix_rt::test]
+    async fn test_index_rejects_too_many_pwds() {
+        let pool = setup_pool();
+        let app = init_test_app!(pool);
+
+        let pairs: Vec<(&str, String)> = (0..=SearchQuery::MAX_PWDS)
+            .map(|i| ("pwd", format!("/dir/{i}")))
+            .collect();
+        let query = serde_html_form::to_string(&pairs).expect("failed to encode query");
+        let req = test::TestRequest::get()
+            .uri(&format!("/?{query}"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[actix_rt::test]
+    async fn test_index_rejects_repeated_hostname() {
+        // Only `pwd` is OR-ed; silently picking one hostname would hide results.
+        let pool = setup_pool();
+        let app = init_test_app!(pool);
+
+        let req = test::TestRequest::get()
+            .uri("/?hostname=a&hostname=b")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 }
